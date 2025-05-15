@@ -1,0 +1,64 @@
+/* FILE: src/assets/main.css - FINAL VERSION */
+
+/* Import base styles (variables, resets) */
+@import './base.css'; /* <<< RESTORED IMPORT */
+
+/* ========================================== */
+/* Base Body Styles (Applied Always)          */
+/* ========================================== */
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--color-text); 
+  background-color: #f4f4f8; /* Light grey OUTSIDE #app */
+  min-height: 100vh; 
+  display: flex; 
+  flex-direction: column;
+}
+
+/* ========================================== */
+/* Root App Container (#app) Styles          */
+/* ========================================== */
+#app {
+  width: 100%;              /* Full width */
+  min-height: 100vh;        
+  background-color: var(--color-background); /* App background (white) */
+  display: flex;            
+  flex-direction: column;   
+  flex-grow: 1;             
+  box-sizing: border-box;   
+  /* NO max-width, NO margin: auto */
+}
+
+/* ========================================== */
+/* Default Link Styles (From Vite Boilerplate)*/
+/* ========================================== */
+a,
+.green {
+  text-decoration: none;
+  color: hsla(160, 100%, 37%, 1); 
+  transition: 0.4s;
+  padding: 3px;
+}
+
+/* ========================================== */
+/* Link Hover Styles (From Vite Boilerplate)  */
+/* ========================================== */
+@media (hover: hover) {
+  a:hover {
+    background-color: hsla(160, 100%, 37%, 0.2); 
+  }
+}
+
+/* ========================================== */
+/* Large Screen Adjustments (Optional)       */
+/* ========================================== */
+@media (min-width: 1024px) {
+  /* No specific overrides needed for #app or body for full-width */
+  /* Add any OTHER large-screen specific styles here if desired */
+}
+
+/* ========================================== */
+/* Basic Heading Styles (Optional)            */
+/* ========================================== */
+/* Usually handled by base.css */
