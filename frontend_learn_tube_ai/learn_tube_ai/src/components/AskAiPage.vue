@@ -1,138 +1,140 @@
-<!-- FILE: src/components/AskAiPage.vue - STEP A -->
+<!-- FILE: src/components/AskAiPage.vue - PHASE 2 STYLING CHANGES -->
 <template>
-  <div class="notebook-page ask-ai-page"> <!-- Root: flex-grow:1 -->
-    <h3 class="page-title">Ask the AI (Step A Test)</h3>
-    <!-- <p class="page-subtitle"><i>Subtitle if needed</i></p> -->
-    
-    <!-- This div is the main content area that grows between title and input -->
-    <div class="ask-ai-main-content-area">
-      <!-- This div is for the chat history and should scroll -->
-      <div class="chat-history-placeholder-scroller" ref="chatHistoryScroller_A">
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 1</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 2</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 3</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 4</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 5</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 6</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 7</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 8</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 9</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 10</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 11</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 12</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 13</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 14</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 15</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 16</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 17</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 18</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 19</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 20</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 21</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 22</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 23</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 24</p>
-        <p style="background: lightskyblue; margin-bottom: 5px; padding: 5px;">Test Line 25</p>
+  <!-- ... TEMPLATE IS THE SAME AS THE LAST WORKING VERSION ... -->
+  <div class="notebook-page ask-ai-page">
+    <h3 class="page-title">Ask the AI</h3>
+    <div class="ask-ai-growing-content-wrapper"> 
+      <div class="chat-history-scroll-area" ref="chatHistoryContainer"> 
+        <div v-for="(message, index) in messages" :key="index" 
+             :class="['chat-message', message.sender === 'user' ? 'user-message' : 'ai-message']">
+          <div class="message-bubble">
+            <span class="sender-label">{{ message.sender === 'user' ? 'You' : 'AI Assistant' }}:</span>
+            <p class="message-text">{{ message.text }}</p>
+          </div>
+        </div>
+        <div v-if="messages.length === 0 && !isLoadingMessages" class="no-messages-placeholder">
+          <p><i>Ask a question...</i></p>
+        </div>
+        <div v-if="isLoadingMessages" class="loading-placeholder">
+            <p><i>Loading messages...</i></p>
+        </div>
       </div>
     </div>
-
-    <!-- Original Chat Input Area -->
     <div class="chat-input-area">
-      <textarea
-        class="chat-input"
-        v-model="userInput_A"
-        placeholder="Type your question here..."
-        @keydown.enter="handleEnterKey_A"
-      ></textarea>
-      <button @click="sendMessage_A" :disabled="!userInput_A.trim()" class="send-button">
-        Send
+      <textarea class="chat-input" v-model="userInput" placeholder="Type your question here..." @keydown.enter="handleEnterKey"></textarea>
+      <button @click="sendMessage" :disabled="!userInput.trim() || isSending" class="send-button">
+        {{ isSending ? 'Sending...' : 'Send' }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'; // Keep nextTick, onMounted, onUpdated for later if needed
-
-// Minimal script for this step - just to make input work, no actual message sending logic yet
-const userInput_A = ref('');
-
-// Placeholder - real sendMessage and handleEnterKey will be restored later
-const sendMessage_A = () => {
-  console.log("Send clicked (Step A):", userInput_A.value);
-  userInput_A.value = '';
-};
-const handleEnterKey_A = (event) => {
-  if (event.shiftKey) { return; }
-  event.preventDefault();
-  sendMessage_A();
-};
+// ... SCRIPT IS THE SAME AS THE LAST WORKING VERSION ...
+import { ref, nextTick, onMounted, onUpdated } from 'vue';
+const messages = ref([]); // Defaulting to empty now
+const userInput = ref('');
+const chatHistoryContainer = ref(null);
+const isLoadingMessages = ref(false); 
+const isSending = ref(false); 
+const scrollToBottom = () => { nextTick(() => { if (chatHistoryContainer.value) { chatHistoryContainer.value.scrollTop = chatHistoryContainer.value.scrollHeight; } }); };
+onMounted(() => { scrollToBottom(); });
+onUpdated(scrollToBottom);
+const sendMessage = () => { const text = userInput.value.trim(); if (!text || isSending.value) return; isSending.value = true; messages.value.push({ sender: 'user', text: text }); userInput.value = ''; setTimeout(() => { messages.value.push({ sender: 'ai', text: `Mock AI response to: "${text}".` }); isSending.value = false; }, 800 + Math.random() * 700); };
+const handleEnterKey = (event) => { if (event.shiftKey) { return; } event.preventDefault(); sendMessage(); };
 </script>
 
 <style scoped>
-/* Root style - must be identical to MyNotesPage's working root */
 .notebook-page.ask-ai-page { 
-  width: 100%;
-  flex-grow: 1; 
-  padding: 0; 
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; 
-  min-height: 0;
-  font-size: 15px; /* Adjusted from MyNotes for consistency with original AskAI */
-  line-height: 1.6; 
-  /* color from var(--color-text) or #333 */
+  width: 100%; flex-grow: 1; display: flex; flex-direction: column;
+  overflow: hidden; min-height: 0; padding: 0; box-sizing: border-box;
+  font-size: 15px; line-height: 1.6;
+}
+.page-title { 
+  margin-bottom: 0.75em; color: var(--color-heading); font-weight: 600; 
+  font-size: 1.4em; border-bottom: 1px solid #eee; padding-bottom: 0.3em;
+  flex-shrink: 0; 
 }
 
-.page-title { /* Style for the title */
-  margin-bottom: 0.75em; 
-  color: var(--color-heading); 
-  font-weight: 600; 
-  font-size: 1.4em; /* Original AskAI title size */
-  border-bottom: 1px solid #eee; 
-  padding-bottom: 0.3em;
-  flex-shrink: 0; /* Title is fixed height */
+.ask-ai-growing-content-wrapper { 
+  flex-grow: 1; display: flex; flex-direction: column;
+  min-height: 0; overflow: hidden; position: relative; 
+  /* --- Phase 2 Change: Make wrapper blend with page --- */
+  background-color: #ffffff; /* Make it white like the main page bg */
+  border: none;             /* Remove border */
+  border-radius: 0;         /* Remove radius */
+  margin-bottom: 10px; 
 }
 
-/* This is the main container that grows, holding the history and input */
-/* This structure is key: Page -> Title (fixed) -> MainContent (grows) -> InputArea (fixed) */
-/* No, this model is wrong for this step.
-   Page -> Title (fixed) -> SCROLLING_HISTORY (grows) -> InputArea (fixed)
-   We need an intermediate wrapper that grows, THEN the history grows within THAT, like MyNotes
-*/
-
-/* CORRECTED STRUCTURE: Page (grows) -> Title (fixed) -> CONTENT_WRAPPER (grows) -> InputArea (fixed) */
-/* Inside CONTENT_WRAPPER: HISTORY_SCROLLER (grows) */
-
-.ask-ai-main-content-area { /* This mimics .notes-editor-container */
-  flex-grow: 1;           /* Takes space between title and input area */
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;         /* It clips/constrains the history scroller */
-  background-color: #f0f0f0; /* Temp bg to see its bounds */
+.chat-history-scroll-area { 
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  overflow-y: auto; padding: 10px;
+  /* Background is now effectively the white from .ask-ai-growing-content-wrapper */
 }
 
-.chat-history-placeholder-scroller { /* This mimics .notes-textarea (but is a div) */
-  flex-grow: 1;                 /* Takes all space in .ask-ai-main-content-area */
-  overflow-y: auto;             /* THIS should scroll */
-  min-height: 0;
-  padding: 10px;
-  background-color: #f9f9f9;    /* Original chat history bg */
-  border: 1px solid #e0e0e0;    /* Original chat history border */
-  border-radius: 4px;           /* Original chat history border-radius */
+.chat-message { margin-bottom: 12px; display: flex; }
+
+/* User Message Bubble - Stays the Same */
+.user-message { justify-content: flex-end; }
+.user-message .message-bubble { 
+  background-color: #DCF8C6; 
+  border-bottom-right-radius: 5px;
+  padding: 8px 12px; 
+  border-radius: 15px; 
+  max-width: 80%; 
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05); 
+  line-height: 1.4; 
+}
+.user-message .sender-label { text-align: right; }
+
+/* AI Message - Notebook Style (No Bubble) */
+.ai-message { 
+  justify-content: flex-start; 
+  /* Optional: add a subtle left margin if needed for alignment */
+  /* margin-left: 5px;  */
+}
+.ai-message .message-bubble { 
+  background-color: transparent; /* <<< Phase 2 Change */
+  border: none;                  /* <<< Phase 2 Change */
+  box-shadow: none;              /* <<< Phase 2 Change */
+  padding: 0;                    /* <<< Phase 2 Change: Padding will be on text/label */
+  border-radius: 0;              /* <<< Phase 2 Change */
+  max-width: 100%;               /* Can take more width if not a bubble */
+  line-height: 1.4; 
+}
+.ai-message .sender-label {
+  /* Keep sender label, but it won't be in a bubble */
+  margin-bottom: 4px; /* Same */
+  /* Optional: Different color or style for AI label if needed */
+  /* color: #007bff; */
+}
+.ai-message .message-text {
+  /* Ensure AI message text has some padding if bubble padding is removed */
+  /* If sender-label is present, text might align well already. If not, add padding. */
+  /* padding: 2px 0; */ /* Example if sender label is above */
+  margin:0; /* Base */
 }
 
-/* Chat Input Area - copied from original AskAiPage.vue */
+
+.message-bubble .sender-label { /* Common for both user and AI if not overridden */
+  font-weight: bold; font-size: 0.8em; display: block;  color: #555; 
+}
+.message-bubble .message-text { /* Common for both user and AI if not overridden */
+  margin: 0; white-space: pre-wrap; word-wrap: break-word; 
+}
+
+.no-messages-placeholder, .loading-placeholder { 
+  text-align: center; color: #888; padding: 30px 10px; font-style: italic;
+  display: flex; align-items: center; justify-content: center; height: 100%;
+}
+
 .chat-input-area { 
-  display: flex; 
-  gap: 10px; 
-  align-items: flex-start; 
-  padding: 10px; 
-  border-top: 1px solid #e0e0e0; 
-  background-color: #fff; 
-  flex-shrink: 0; /* Input area is fixed height */
+  display: flex; gap: 10px; align-items: center; 
+  padding: 10px; border-top: 1px solid #e0e0e0; 
+  background-color: #fdfdfd; flex-shrink: 0; 
+  border-radius: 8px; 
+  margin-top: auto; 
+  box-shadow: 0 -2px 5px rgba(0,0,0,0.03); 
 }
 .chat-input { 
   flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px; 
@@ -140,8 +142,14 @@ const handleEnterKey_A = (event) => {
   min-height: 40px; max-height: 120px; overflow-y: auto; 
 }
 .send-button { 
-  padding: 10px 18px; background-color: #42b983; color: white; border: none; 
-  border-radius: 6px; cursor: pointer; font-size: 1em; height: 40px; align-self: flex-end; 
+  padding: 0 18px; 
+  background-color: #5c9ded; /* Bluish color */
+  color: white; border: none; 
+  border-radius: 6px; cursor: pointer; font-size: 1em; 
+  height: 40px; line-height: 40px; 
+  white-space: nowrap;
+  transition: background-color 0.2s;
 }
+.send-button:hover { background-color: #4a8ad8; }
 .send-button:disabled { background-color: #aaa; }
 </style>

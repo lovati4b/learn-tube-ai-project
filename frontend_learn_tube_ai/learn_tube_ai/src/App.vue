@@ -1,3 +1,4 @@
+<!-- FILE: src/App.vue -->
 <template>
   <div id="app-container">
     <header>
@@ -17,7 +18,8 @@
         </div>
         <div class="transcript-area">
           <p style="margin-top:0; margin-bottom: 5px;">[Transcript Area]</p>
-          <textarea rows="15" style="width: 100%; font-family: monospace; font-size: 12px;" placeholder="Transcript will appear here..." readonly></textarea>
+          <!-- Added class "main-transcript-textarea" for focus styling -->
+          <textarea class="main-transcript-textarea" rows="15" style="width: 100%; font-family: monospace; font-size: 12px;" placeholder="Transcript will appear here..." readonly></textarea>
         </div>
       </div>
       <div class="right-pane notebook-area">
@@ -38,8 +40,8 @@ import Notebook from './components/Notebook.vue';
   font-weight: normal;
   display: flex;
   flex-direction: column;
-  flex-grow: 1; /* If #app-container is itself a flex child of body or #app */
-  min-height: 100vh; /* Base height */
+  flex-grow: 1; 
+  min-height: 100vh; 
 }
 
 header {
@@ -47,40 +49,43 @@ header {
   margin-bottom: 1rem;
   border-bottom: 1px solid #eee;
   padding: 1rem 0.5rem;
-  flex-shrink: 0; /* Header has fixed height */
+  flex-shrink: 0; 
 }
 header h1 { font-size: 2em; color: #2c3e50; }
 
 .main-layout {
   display: flex;
-  flex-direction: row; /* Left and Right panes side-by-side */
+  flex-direction: row; 
   gap: 0.75rem;
-  flex-grow: 1; /* Takes remaining vertical space in #app-container */
-  overflow: hidden; /* IMPORTANT: Constrains children (panes) */
+  flex-grow: 1; 
+  overflow: hidden; 
   padding: 0;
-  align-items: stretch;
-  min-height: 0; /* Allows .main-layout to shrink if necessary, complements flex-grow */
+  align-items: stretch; 
+  min-height: 0; 
 }
 
 .left-pane {
-  flex: 1; /* Takes 1 part of available width */
+  flex: 1; 
   display: flex;
-  flex-direction: column; /* Stacks video and transcript vertically */
+  flex-direction: column; 
   gap: 0.75rem;
-  min-width: 0; /* Allows shrinking below content width */
+  min-width: 0; 
   padding: 0.5rem;
-  overflow: hidden; /* Constrains its children */
-  min-height: 0; /* Allows it to be constrained by .main-layout's height */
+  overflow: hidden;
+  min-height: 0; 
 }
 
 .right-pane.notebook-area {
-  flex: 1; /* Takes 1 part of available width */
+  flex: 1; 
   display: flex;
-  flex-direction: column; /* Notebook component will be stacked vertically (nav, content) */
-  min-width: 0; /* Allows shrinking below content width */
-  overflow: hidden; /* Constrains Notebook component */
-  min-height: 0; /* Allows it to be constrained by .main-layout's height */
-  background-color: lightcoral; /* For debugging if it's still short */
+  flex-direction: column; 
+  min-width: 0; 
+  overflow: hidden; 
+  min-height: 0; 
+  /* background-color: lightcoral; */ /* <<< REMOVED DEBUG COLOR */
+  /* Background will come from Notebook.vue's .dynamic-component-wrapper or can be set here if desired */
+  /* Example for AliceBlue background for the whole pane: */
+  /* background-color: #f0f8ff;  */
 }
 
 .video-player-area {
@@ -89,7 +94,7 @@ header h1 { font-size: 2em; color: #2c3e50; }
   border: 1px solid #ddd;
   border-radius: 8px;
   text-align: center;
-  flex-shrink: 0; /* Fixed height element */
+  flex-shrink: 0; 
 }
 .video-player-area p { font-weight: bold; color: #555; }
 
@@ -98,19 +103,27 @@ header h1 { font-size: 2em; color: #2c3e50; }
   padding: 10px;
   border: 1px solid #ddd;
   border-radius: 8px;
-  flex-grow: 1; /* Takes remaining space in .left-pane */
+  flex-grow: 1; 
   display: flex;
-  flex-direction: column; /* Stacks its <p> and <textarea> */
-  overflow: hidden; /* Constrains the textarea */
-  min-height: 0; /* Critical */
+  flex-direction: column; 
+  overflow: hidden; 
+  min-height: 0; 
 }
 .transcript-area p { font-weight: bold; color: #555; flex-shrink: 0; }
-.transcript-area textarea {
-  flex-grow: 1; /* Takes remaining space in .transcript-area */
+
+.main-transcript-textarea { /* Style for the main transcript textarea */
+  flex-grow: 1; 
   border: 1px solid #ccc;
   border-radius: 4px;
   padding: 8px;
   resize: none;
-  overflow-y: auto; /* Textarea handles its own scroll */
+  overflow-y: auto; 
+  /* width: 100% and font-family/size are still inline for this specific one */
+  transition: border-color 0.2s, box-shadow 0.2s; /* For smooth focus */
+}
+.main-transcript-textarea:focus {
+  border-color: #FFD700; /* Gold/Yellow */
+  box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.4); /* Subtle glow */
+  outline: none; /* Remove default browser outline */
 }
 </style>

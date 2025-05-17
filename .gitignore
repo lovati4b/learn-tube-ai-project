@@ -1,25 +1,31 @@
-# Python
-venv/
-*.pyc
-__pycache__/
-.env
-*.sqlite3 # If you're using SQLite and don't want to commit the DB file
-instance/ # Often used by Flask for SQLite DBs or config
+# Python / learn_tube_ai
+learn_tube_ai/venv/
+learn_tube_ai/.env
+learn_tube_ai/*.sqlite3
+learn_tube_ai/instance/
+learn_tube_ai/__pycache__/  # Covers __pycache__ specifically within learn_tube_ai
+learn_tube_ai/*.pyc         # Covers .pyc specifically within learn_tube_ai
 
-# Node / Vue / Vite
-node_modules/
-frontend_learn_tube_ai/learn_tube_ai/node_modules/ # Be specific if nested
-dist/
-frontend_learn_tube_ai/learn_tube_ai/dist/ # Be specific if nested
-.vite/
-frontend_learn_tube_ai/learn_tube_ai/.vite/ # Be specific if nested
+# Node / Vue / Frontend
+frontend_learn_tube_ai/learn_tube_ai/node_modules/
+frontend_learn_tube_ai/learn_tube_ai/dist/
+frontend_learn_tube_ai/learn_tube_ai/.vite/
 *.local
+
+# Log files
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
 
-# Editor/OS specific
+# IDEs and Editors
 .vscode/
 .idea/
-*.DS_Store
+
+# OS generated files
+.DS_Store
 Thumbs.db
+
+# General Python cache files (catches any not in learn_tube_ai/ explicitly)
+__pycache__/
+*.pyc
