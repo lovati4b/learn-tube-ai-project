@@ -1,136 +1,155 @@
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
-# The library also has other errors we might want to catch like YouTubeRequestFailed for 429s
-from youtube_transcript_api._errors import YouTubeRequestFailed 
-import xml.etree.ElementTree # For the new error
+# learn_tube_ai/app/services/video_processing_service.py
+from .llm_service import generate_analysis_from_text
+from youtube_transcript_api import (
+    YouTubeTranscriptApi, 
+    TranscriptsDisabled, 
+    NoTranscriptFound, 
+    VideoUnavailable 
+    # Removed TooManyRequests, NotTranslatable, etc.
+)
+import os 
 
-def extract_video_id_from_url(youtube_url):
+def get_youtube_transcript(video_id: str) -> dict:
     """
-    Extracts the YouTube video ID from a URL.
-    Handles standard, short, and embed URLs.
-    Returns None if no ID can be found.
+    Fetches the transcript for a given YouTube video ID.
+    Returns a dictionary with:
+        'text': The full transcript as a single string.
+        'segments': A list of segment dictionaries (e.g., {'text': str, 'start': float, 'duration': float}).
+        'error': An error message string if fetching fails, otherwise None.
     """
-    import re
-    patterns = [
-        r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})',
-        r'(?:https?:\/\/)?youtu\.be\/([a-zA-Z0-9_-]{11})',
-        r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})',
-        r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})'
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, youtube_url)
-        if match:
-            return match.group(1)
-    return None
+    try:
+        print(f"SERVICE: Attempting to list transcripts for video_id: {video_id}")
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        selected_transcript_obj = None
+        # Try to find a manually created or generated transcript in preferred languages
+        # The library handles the preference order if multiple languages in the list match
+        preferred_langs = ['en', 'en-US', 'en-GB']
+        try:
+            print(f"SERVICE: Trying to find transcript in {preferred_langs} for {video_id}")
+            selected_transcript_obj = transcript_list.find_transcript(preferred_langs)
+        except NoTranscriptFound:
+            print(f"SERVICE: No transcript in preferred languages {preferred_langs} found for {video_id}.")
+            # Optionally, you could try fetching ANY transcript and then translating it
+            # For now, we consider this an error if primary languages are not found.
+            # Example:
+            # try:
+            #   any_transcript = transcript_list.find_generated_transcript(transcript_list.languages) # find any
+            #   if any_transcript.is_translatable:
+            #       selected_transcript_obj = any_transcript.translate('en')
+            # except (NoTranscriptFound, NotTranslatable, TranslationLanguageNotAvailable):
+            #    pass # Stick with original error
+            if not selected_transcript_obj:
+                 return {"text": None, "segments": None, "error": f"No transcript found in preferred languages: {', '.join(preferred_langs)}."}
 
-def get_youtube_transcript(video_id_or_url: str):
-    """
-    Fetches the transcript for a given YouTube video ID or URL.
-    Returns the transcript text as a single string or (None, error_message) if not found/error.
-    """
-    video_id = extract_video_id_from_url(video_id_or_url)
-    if not video_id:
-        if len(video_id_or_url) == 11 and not video_id_or_url.startswith("http"): # Basic ID check
-            video_id = video_id_or_url
+
+        print(f"SERVICE: Fetching transcript data for {video_id} using found transcript object.")
+        fetched_segments_data = selected_transcript_obj.fetch() 
+        
+        if not fetched_segments_data:
+            print(f"SERVICE: Fetched transcript data is empty for {video_id}.")
+            return {"text": None, "segments": None, "error": "Fetched transcript is empty."}
+
+        transcript_texts_list = []
+        processed_segments_list = []
+
+        for i, seg_data in enumerate(fetched_segments_data):
+            # ... (segment processing logic as in the previous version - assuming it's correct for FetchedTranscriptSnippet) ...
+            try:
+                if hasattr(seg_data, 'text') and hasattr(seg_data, 'start') and hasattr(seg_data, 'duration'):
+                    current_text, start_time, duration_val = seg_data.text, seg_data.start, seg_data.duration
+                elif isinstance(seg_data, dict) and all(k in seg_data for k in ['text', 'start', 'duration']):
+                    current_text, start_time, duration_val = seg_data['text'], seg_data['start'], seg_data['duration']
+                else: raise ValueError("Segment format not recognized") # Force into except block
+                
+                transcript_texts_list.append(current_text)
+                processed_segments_list.append({"text": current_text, "start": start_time, "duration": duration_val})
+            except Exception as e_seg:
+                print(f"SERVICE: Error processing segment {i} for {video_id}: {e_seg}. Data: {str(seg_data)[:100]}")
+                transcript_texts_list.append(f"[Segment Error: {str(e_seg)[:30]}]") # Add placeholder
+                processed_segments_list.append({"text": f"[Segment Error]", "start": 0, "duration": 0, "error": str(e_seg)})
+
+
+        if not transcript_texts_list: # Should not happen if fetched_segments_data was not empty and processing worked
+            print(f"SERVICE: No text could be extracted from any segments for {video_id}")
+            return {"text": None, "segments": [], "error": "No text content in transcript segments."}
+
+        full_transcript_text = " ".join(transcript_texts_list).replace('\n', ' ')
+        full_transcript_text = ' '.join(full_transcript_text.split())
+
+        print(f"SERVICE: Transcript processing complete for {video_id}. Text length: {len(full_transcript_text)}, Segments: {len(processed_segments_list)}")
+        return {"text": full_transcript_text, "segments": processed_segments_list, "error": None}
+
+    # Specific exceptions from youtube-transcript-api
+    except TranscriptsDisabled:
+        print(f"SERVICE: Transcripts are disabled for video {video_id}")
+        return {"text": None, "segments": None, "error": "Transcripts are disabled for this video."}
+    except NoTranscriptFound: # This is a valid exception from the library
+        print(f"SERVICE: No transcript found for video {video_id} (overall).")
+        return {"text": None, "segments": None, "error": "No transcript could be found for this video."}
+    except VideoUnavailable:
+        print(f"SERVICE: Video {video_id} is unavailable.")
+        return {"text": None, "segments": None, "error": "This video is unavailable."}
+    # NoTranscriptAccessible might also not be available, remove if it causes issues
+    # # except NoTranscriptAccessible: 
+    # #      print(f"SERVICE: No transcript is accessible for {video_id}.")
+    # #      return {"text": None, "segments": None, "error": "No transcript is accessible for this video."}
+    except Exception as e: 
+        print(f"SERVICE: An unexpected error occurred in youtube-transcript-api processing for {video_id}: {str(e)}")
+        if "no element found" in str(e).lower():
+            error_detail = "YouTube returned an unexpected page structure (possibly an error or consent page). Transcript not parsable."
+            # Check for 429 type errors in the generic exception message
+        elif "429" in str(e) or "too many requests" in str(e).lower():
+            error_detail = "Too many requests to YouTube. Try again later or use VPN."
         else:
-            error_msg = f"Could not extract a valid YouTube video ID from: {video_id_or_url}"
-            print(error_msg)
-            return None, error_msg
+            error_detail = str(e)
+    return {"text": None, "segments": None, "error": f"Unexpected error fetching transcript: {error_detail}"}
+
+def process_video_for_llm_analysis(video_id: str, transcript_text: str) -> dict:
+    """
+    Processes the transcript text using an LLM for analysis.
+    Returns a dictionary with 'table_of_contents', 'key_terms', 'logical_flow', and 'summary'.
+    Handles missing API key gracefully by returning empty/default analysis.
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY") # or whatever your key variable is
+    default_analysis = {
+        "table_of_contents": [],
+        "key_terms": [],
+        "logical_flow": "LLM analysis not performed.", # Default message
+        "summary": "Summary not available." # Default message
+    }
+
+    if not api_key:
+        print(f"API_KEY not found for LLM. Skipping LLM analysis for {video_id}.")
+        default_analysis["logical_flow"] = "LLM analysis skipped: API key not configured."
+        default_analysis["summary"] = "Summary skipped: API key not configured."
+        return default_analysis
+    
+    if not transcript_text or not transcript_text.strip():
+        print(f"No transcript text provided to LLM for {video_id}. Skipping LLM analysis.")
+        default_analysis["logical_flow"] = "LLM analysis skipped: Transcript is empty or unavailable."
+        default_analysis["summary"] = "Summary skipped: Transcript is empty or unavailable."
+        return default_analysis
 
     try:
-        print(f"Fetching transcript list for video ID: {video_id}")
-        transcript_list_obj = YouTubeTranscriptApi.list_transcripts(video_id)
-        transcript_obj = None
-
-        target_languages = ['en', 'en-US', 'en-GB']
-        for lang_code in target_languages:
-            try:
-                transcript_obj = transcript_list_obj.find_transcript([lang_code])
-                print(f"Found transcript object in '{lang_code}' for {video_id}")
-                break
-            except NoTranscriptFound:
-                continue
+        print(f"Attempting LLM analysis for {video_id}...")
+        # Assuming generate_analysis_from_text will use the API key from environment
+        llm_response_data = generate_analysis_from_text(transcript_text) # This should return a dict
         
-        if not transcript_obj:
-            print(f"No English transcript found for {video_id}. Trying any available generated transcript.")
-            for tr_info in transcript_list_obj:
-                if tr_info.is_generated: 
-                    transcript_obj = tr_info
-                    print(f"Found generated transcript: {transcript_obj.language} (code: {transcript_obj.language_code}) for {video_id}")
-                    break
-            if not transcript_obj:
-                 print(f"No suitable transcript (English or any generated) found for {video_id}.")
-                 return None, "No suitable transcript found for this video."
+        # Ensure all keys are present in the response, defaulting to empty/null if not
+        analysis_data = {
+            "table_of_contents": llm_response_data.get("table_of_contents", []),
+            "key_terms": llm_response_data.get("key_terms", []),
+            "logical_flow": llm_response_data.get("logical_flow", "No logical flow generated."),
+            "summary": llm_response_data.get("summary", "No summary generated.")
+        }
+        print(f"LLM Analysis for {video_id} successful (or mock successful).")
+        return analysis_data
         
-        if not transcript_obj:
-             print(f"No transcript object obtained for {video_id}.")
-             return None, "Could not obtain any transcript object for this video."
-
-        print(f"Fetching actual transcript content for language '{transcript_obj.language}' for {video_id}")
-        fetched_data = transcript_obj.fetch() # This is the FetchedTranscript object OR raises error
-
-        # Process the fetched_data which we expect to be a FetchedTranscript object
-        if hasattr(fetched_data, 'snippets') and isinstance(fetched_data.snippets, list):
-            full_transcript_text = " ".join([snippet.text for snippet in fetched_data.snippets])
-            print(f"Successfully fetched and combined transcript for {video_id} (length: {len(full_transcript_text)} chars).")
-            return full_transcript_text, None
-        else:
-            error_msg = f"Fetched transcript data for {video_id} is not in the expected 'FetchedTranscript' object format with a 'snippets' list."
-            print(error_msg)
-            print(f"Actual data type: {type(fetched_data)}, Content: {str(fetched_data)[:500]}...") # Print part of content
-            return None, error_msg
-
-    except xml.etree.ElementTree.ParseError as e: # Catch the XML parsing error specifically
-        error_msg = f"XML parsing error for {video_id} (transcript data likely empty or malformed): {str(e)}"
-        print(error_msg)
-        return None, error_msg
-    except TranscriptsDisabled:
-        error_msg = f"Transcripts are disabled for {video_id}"
-        print(error_msg)
-        return None, error_msg
-    except NoTranscriptFound:
-        error_msg = f"No transcripts found for {video_id}."
-        print(error_msg)
-        return None, error_msg
-    except VideoUnavailable:
-        error_msg = f"Video {video_id} is unavailable."
-        print(error_msg)
-        return None, error_msg
-    except YouTubeRequestFailed as e: # Catch 429s or other direct request failures
-        error_msg = f"YouTube request failed for {video_id} (e.g., rate limit, network issue): {str(e)}"
-        print(error_msg)
-        return None, error_msg
     except Exception as e:
-        error_msg = f"An unexpected error occurred for {video_id}: {str(e)}"
-        print(error_msg)
-        import traceback
-        print("Full Traceback:")
-        traceback.print_exc()
-        return None, error_msg
-
-# --- Example Usage (for testing this file directly) ---
-if __name__ == '__main__':
-    import time
-
-    test_urls = [
-        "https://www.youtube.com/watch?v=dQw4w9WgXcQ", # Problematic one
-        "https://www.youtube.com/watch?v=3JZ_D3ELwOQ", # Worked
-        "https://www.youtube.com/watch?v=WHhZQ3K24HM", 
-        "https://youtu.be/xvFZjo5PgG0",                 
-        "https://www.youtube.com/shorts/J9y6S-x-fXk",   
-        "https://www.youtube.com/watch?v=INVALID_ID_HERE", 
-        "not_a_youtube_url"                             
-    ]
-
-    for url in test_urls:
-        print(f"\n--- Testing URL: {url} ---")
-        transcript_text, error = get_youtube_transcript(url)
-        
-        if error:
-            print(f"Failed to get transcript: {error}")
-        elif transcript_text is not None :
-            print(f"Transcript (first 200 chars): {transcript_text[:200]}...")
-        else:
-            print("Failed to get transcript (unknown reason: transcript is None, no error msg).")
-        
-        print("Waiting for 3 seconds before next request...")
-        time.sleep(3)
+        print(f"Error during LLM analysis for {video_id}: {e}")
+        # import traceback
+        # print(traceback.format_exc()) # For more detailed debugging if LLM call fails
+        default_analysis["logical_flow"] = f"LLM analysis failed: {str(e)}"
+        default_analysis["summary"] = f"Summary generation failed: {str(e)}"
+        return default_analysis

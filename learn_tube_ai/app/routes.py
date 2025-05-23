@@ -1,168 +1,208 @@
-from flask import Blueprint, request, jsonify
-import json # For converting string to dict and vice-versa
-from .services.llm_service import get_llm_completion 
-from .services.video_processing_service import get_youtube_transcript, extract_video_id_from_url # Added extract_video_id
-from . import db # Import db instance
-from .models import Video # Import Video model
+# learn_tube_ai/app/routes.py
+from flask import Blueprint, request, jsonify, make_response
+# Ensure all necessary imports are here
+from .services.video_processing_service import get_youtube_transcript, process_video_for_llm_analysis 
+from .models import Video
+from app import db 
+import re
 
-main_bp = Blueprint('main', __name__)
+main_bp = Blueprint('api', __name__, url_prefix='/api')
 
-SYSTEM_PROMPT_VIDEO_ANALYSIS = """
-You are an expert AI assistant specializing in analyzing educational video transcripts.
-Your task is to extract key information and structure it as a valid JSON object.
-The JSON object must have the following top-level keys: "table_of_contents", "key_terms", "logical_flow".
+def extract_video_id(url):
+    # ... (your existing extract_video_id function) ...
+    patterns = [ r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([^&]+)', r'(?:https?:\/\/)?(?:www\.)?youtu\.be\/([^?]+)', r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([^?]+)', r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([^?]+)',]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match: return match.group(1)
+    return None
 
-- "table_of_contents": An array of objects, where each object has "title" (string, concise segment title) and "timestamp_seconds" (integer, approximate start time in seconds for that segment). Derive timestamps from the context if not explicitly stated.
-- "key_terms": An array of objects, where each object has "term" (string, the key term or concept) and "definition" (string, a concise definition relevant to the transcript's context).
-- "logical_flow": A string containing a hierarchical outline or a paragraph summarizing the main topics and their progression in the video. Use markdown for simple formatting if helpful (e.g., bullet points).
+@main_bp.route('/process_video', methods=['POST', 'OPTIONS'])
+def process_video_route():
+    # ... (your existing process_video_route - the one from my last message that handles
+    #          transcript fetch errors by returning video_id and video_url) ...
+    if request.method == 'OPTIONS': return _build_cors_preflight_response()
+    data = request.get_json()
+    if not data or 'video_url' not in data: return jsonify({"error": "Missing video_url"}), 400
+    video_url = data['video_url']
+    video_id = extract_video_id(video_url) 
+    if not video_id: return jsonify({"error": "Invalid YouTube URL", "details": "Could not extract video ID.", "video_url": video_url}), 400
+    print(f"API: Received video URL: {video_url} -> Extracted video ID: {video_id}")
+    video_obj = Video.query.filter_by(video_id=video_id).first()
+    response_data = {}; status_code = 200
+    if video_obj and video_obj.transcript_text:
+        print(f"API: Found video {video_id} with transcript in database (cache).")
+        response_data = { "message": "Video data retrieved from cache.", "video_id": video_obj.video_id, "video_url": video_obj.video_url, "title": video_obj.title or f"Video: {video_id}", "transcript_text": video_obj.transcript_text or "", "segments": video_obj.transcript_segments or [], "analysis": { "table_of_contents": video_obj.table_of_contents or [], "key_terms": video_obj.key_terms or [], "logical_flow": video_obj.logical_flow or "Analysis previously cached.", "summary": video_obj.summary or "Summary previously cached."}}
+        status_code = 200
+    else:
+        if video_obj: print(f"API: Video {video_id} found in DB but missing transcript text. Re-fetching.")
+        else: print(f"API: Video {video_id} not in database. Fetching transcript.")
+        transcript_fetch_result = get_youtube_transcript(video_id)
+        transcript_text = transcript_fetch_result.get("text"); transcript_segments = transcript_fetch_result.get("segments"); transcript_error = transcript_fetch_result.get("error")
+        if transcript_error or not transcript_text:
+            print(f"API: Failed to fetch transcript for {video_id}. Error: {transcript_error}")
+            return jsonify({"error": "Failed to retrieve transcript automatically", "details": transcript_error or "Transcript is unavailable or empty.", "video_id": video_id, "video_url": video_url }), 422
+        print(f"API: Transcript for {video_id} fetched. Length: {len(transcript_text)}. Processing for LLM.")
+        analysis_results = process_video_for_llm_analysis(video_id, transcript_text)
+        try:
+            if not video_obj: video_obj = Video(video_id=video_id, video_url=video_url); db.session.add(video_obj)
+            video_obj.title = f"Video: {video_id}"; video_obj.transcript_text = transcript_text; video_obj.transcript_segments = transcript_segments; video_obj.table_of_contents = analysis_results.get("table_of_contents"); video_obj.key_terms = analysis_results.get("key_terms"); video_obj.logical_flow = analysis_results.get("logical_flow"); video_obj.summary = analysis_results.get("summary")
+            db.session.commit(); print(f"API: Video {video_id} and its data (re-)saved to database.")
+            response_data = {"message": "Video processed successfully.", "video_id": video_obj.video_id, "video_url": video_obj.video_url, "title": video_obj.title, "transcript_text": video_obj.transcript_text, "segments": video_obj.transcript_segments, "analysis": analysis_results }; status_code = 200 # Changed from 201 for simplicity, or check if new_video was added
+        except Exception as e: db.session.rollback(); print(f"API: Database error for {video_id}: {str(e)}"); return jsonify({"error": "Database error after processing video.", "details": str(e)}), 500
+    return jsonify(response_data), status_code
 
-Ensure the entire output is a single, valid JSON object. Do not include any explanatory text outside of the JSON structure itself.
-"""
-
-@main_bp.route('/api/process_video', methods=['POST'])
-def process_video():
-    if not request.is_json:
-        return jsonify({"error": "Request must be JSON"}), 400
+# --- MODIFIED ENDPOINT FOR CUSTOM TRANSCRIPT WITH TIMESTAMP PARSING ---
+@main_bp.route('/process_video_with_custom_transcript', methods=['POST', 'OPTIONS'])
+def process_video_with_custom_transcript_route():
+    if request.method == 'OPTIONS':
+        return _build_cors_preflight_response()
 
     data = request.get_json()
-    video_url = data.get('video_url')
+    if not data or not all(k in data for k in ['video_id', 'video_url', 'custom_transcript_text']):
+        return jsonify({"error": "Missing required fields: video_id, video_url, or custom_transcript_text"}), 400
 
-    if not video_url:
-        return jsonify({"error": "Missing 'video_url' in request"}), 400
+    video_id = data['video_id']
+    video_url = data['video_url'] 
+    custom_transcript_text = data['custom_transcript_text']
+    custom_title = data.get('title') 
 
-    print(f"Received video URL: {video_url}")
-    video_id = extract_video_id_from_url(video_url)
+    print(f"API: Received custom transcript for video_id: {video_id}. Text length: {len(custom_transcript_text)}")
 
-    if not video_id:
-        return jsonify({"error": "Invalid YouTube URL or could not extract video ID"}), 400
-
-    # --- Step 1: Check cache (Database) ---
-    cached_video = Video.query.get(video_id)
-    if cached_video and cached_video.llm_analysis_json and cached_video.processing_status == 'completed':
-        print(f"Found cached and completed analysis for video ID: {video_id}")
-        return jsonify({
-            "message": "Analysis retrieved from cache.",
-            "video_url": video_url,
-            "video_id": video_id,
-            "status": "cached",
-            "analysis": cached_video.get_llm_analysis() # Use the model's helper method
-        }), 200
-    elif cached_video and cached_video.processing_status in ['pending', 'processing_transcript', 'processing_llm']:
-         print(f"Processing already in progress for video ID: {video_id} (status: {cached_video.processing_status})")
-         return jsonify({
-            "message": "Video processing is already in progress or pending.",
-            "video_url": video_url,
-            "video_id": video_id,
-            "status": cached_video.processing_status
-         }), 202 # Accepted
-    # ------------------------------------
+    parsed_segments = []
+    lines = custom_transcript_text.splitlines()
     
-    # If not cached or not complete, or failed previously, try processing:
-    current_video_entry = cached_video
-    if not current_video_entry:
-        current_video_entry = Video(id=video_id, processing_status='pending')
-        db.session.add(current_video_entry)
-        # Commit early to establish the row if it's new and status is pending
-        try:
-            db.session.commit() 
-        except Exception as e:
-            db.session.rollback()
-            print(f"DB Error on initial save for {video_id}: {e}")
-            return jsonify({"error": "Database error during initial video save", "details": str(e)}), 500
+    # Regex to capture timestamps like [00:00], 00:00, 0:00:00, [0:00:00.123] etc.
+    # It captures hours (optional), minutes, seconds, and optionally milliseconds.
+    # It also handles optional square brackets around the timestamp.
+    timestamp_pattern = re.compile(
+        r"^\s*(?:\[)?((?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[\.,](\d{1,3}))?)(?:\])?\s*(.*)"
+    )
+    # Groups: 1:FullTime, 2:Hours(opt), 3:Minutes, 4:Seconds, 5:Millis(opt), 6:Text
+
+    current_segments_buffer = [] # To hold text lines between timestamps
+
+    for line in lines:
+        line = line.strip()
+        if not line: # Skip empty lines
+            continue
+
+        match = timestamp_pattern.match(line)
+        if match:
+            # If we have buffered text, it belongs to the *previous* timestamp (or is intro text)
+            if current_segments_buffer:
+                # If this is the first timestamp found, previous text is intro segment
+                if not parsed_segments: 
+                    parsed_segments.append({
+                        "text": " ".join(current_segments_buffer).strip(),
+                        "start": 0.0, # Intro text starts at 0
+                        "duration": 0.0 # Duration unknown without next timestamp initially
+                    })
+                else: # Append buffered text to the previous segment's text
+                    parsed_segments[-1]["text"] += " " + " ".join(current_segments_buffer).strip()
+                current_segments_buffer = [] # Clear buffer
+
+            # Extract time components
+            full_time_str, hr_str, min_str, sec_str, ms_str, text_after_timestamp = match.groups()
+            
+            hours = int(hr_str) if hr_str else 0
+            minutes = int(min_str) if min_str else 0 # Should always be present if hr_str is
+            seconds = int(sec_str)
+            milliseconds = int(ms_str.ljust(3, '0')) if ms_str else 0 # Pad ms to 3 digits
+
+            start_time_seconds = (hours * 3600) + (minutes * 60) + seconds + (milliseconds / 1000.0)
+            
+            parsed_segments.append({
+                "text": text_after_timestamp.strip(),
+                "start": start_time_seconds,
+                "duration": 0.0 # Placeholder, will calculate next
+            })
+        else:
+            # This line does not start with a timestamp, append to buffer
+            current_segments_buffer.append(line)
+
+    # If there's any remaining text in the buffer after the last timestamp
+    if current_segments_buffer:
+        if not parsed_segments: # Whole text had no timestamps
+            parsed_segments.append({
+                "text": " ".join(current_segments_buffer).strip(),
+                "start": 0.0,
+                "duration": 600.0 # Arbitrary duration for the whole block
+            })
+        else: # Append to the last segment found
+            parsed_segments[-1]["text"] += " " + " ".join(current_segments_buffer).strip()
+            parsed_segments[-1]["text"] = parsed_segments[-1]["text"].strip()
 
 
-    # --- Step 2: Get the transcript ---
-    current_video_entry.processing_status = 'processing_transcript'
-    current_video_entry.last_processing_error = None # Clear previous errors
+    # Calculate durations (start of next segment - start of current)
+    if len(parsed_segments) > 1:
+        for i in range(len(parsed_segments) - 1):
+            duration = parsed_segments[i+1]["start"] - parsed_segments[i]["start"]
+            # Ensure duration is not negative (e.g. if timestamps are out of order, though unlikely)
+            parsed_segments[i]["duration"] = max(0.1, duration) # Min duration 0.1s
+        # For the last segment, assign an average or arbitrary duration
+        if parsed_segments:
+            parsed_segments[-1]["duration"] = 10.0 # Arbitrary 10s for the last segment
+    elif parsed_segments and parsed_segments[0]["duration"] == 0.0: # Single segment, or intro before first timestamp
+        # If it's an intro text before any timestamp, and no other timestamps followed.
+        # Or if it's a single block of text with no timestamps.
+        if parsed_segments[0]["text"]: # Check if there is text
+             parsed_segments[0]["duration"] = max(10.0, len(parsed_segments[0]["text"]) / 15) # Estimate duration based on text length (15 chars/sec)
+
+
+    if not parsed_segments and custom_transcript_text: # Ultimate fallback
+         parsed_segments.append({"text": custom_transcript_text, "start": 0, "duration": 600})
+
+
+    print(f"API: Parsed {len(parsed_segments)} segments from custom transcript.")
+    
+    analysis_results = process_video_for_llm_analysis(video_id, custom_transcript_text) # LLM still gets the full raw text
+
     try:
+        video_obj = Video.query.filter_by(video_id=video_id).first()
+        if not video_obj:
+            print(f"API: Video {video_id} not found for custom transcript. Creating new entry.")
+            video_obj = Video(video_id=video_id, video_url=video_url, title=custom_title or f"Video: {video_id} (custom transcript)")
+            db.session.add(video_obj)
+        else:
+            print(f"API: Updating video {video_id} with custom transcript.")
+            if custom_title and video_obj.title != custom_title: # Only update title if custom one provided and different
+                video_obj.title = custom_title
+
+        video_obj.transcript_text = custom_transcript_text # Store original pasted text
+        video_obj.transcript_segments = parsed_segments # Store newly parsed segments
+        # ... (update analysis fields as before) ...
+        video_obj.table_of_contents = analysis_results.get("table_of_contents")
+        video_obj.key_terms = analysis_results.get("key_terms")
+        video_obj.logical_flow = analysis_results.get("logical_flow")
+        video_obj.summary = analysis_results.get("summary")
+        
         db.session.commit()
-    except Exception as e:
-        db.session.rollback() # Rollback status change if commit fails
-        print(f"DB Error updating status to processing_transcript for {video_id}: {e}")
-        return jsonify({"error": "Database error updating video status", "details": str(e)}), 500
+        print(f"API: Video {video_id} updated/created with custom transcript and analysis.")
+        
+        response_data = {
+            "message": "Custom transcript processed successfully.",
+            "video_id": video_obj.video_id,
+            "video_url": video_obj.video_url,
+            "title": video_obj.title,
+            "transcript_text": video_obj.transcript_text,
+            "segments": video_obj.transcript_segments, # Send back parsed segments
+            "analysis": analysis_results
+        }
+        return jsonify(response_data), 200
 
-    print(f"Attempting to fetch transcript for: {video_url}")
-    actual_transcript_text, transcript_error_message = get_youtube_transcript(video_url) # video_url or video_id
-
-    if transcript_error_message:
-        print(f"Transcript fetching error for {video_id}: {transcript_error_message}")
-        current_video_entry.processing_status = 'failed_transcript'
-        current_video_entry.last_processing_error = transcript_error_message
-        try:
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            print(f"DB Error on saving transcript failure for {video_id}: {e}")
-        return jsonify({"error": "Failed to fetch transcript", "details": transcript_error_message}), 422
-
-    current_video_entry.transcript_text = actual_transcript_text
-    print(f"Transcript fetched successfully for {video_id} (first 100 chars): {actual_transcript_text[:100]}...")
-    # -------------------------------------
-
-    # --- Step 3: Call LLM service ---
-    current_video_entry.processing_status = 'processing_llm'
-    try:
-        db.session.commit()
     except Exception as e:
         db.session.rollback()
-        print(f"DB Error updating status to processing_llm for {video_id}: {e}")
-        return jsonify({"error": "Database error updating video status", "details": str(e)}), 500
-        
-    print(f"Calling LLM service for analysis with actual transcript for {video_id}...")
-    try:
-        user_prompt_for_analysis = f"""
-        Analyze the following video transcript and generate the requested information.
-        Make sure your response strictly follows the JSON format specified in the system instructions.
+        print(f"API: Database error for {video_id} with custom transcript: {str(e)}")
+        return jsonify({"error": "Database error processing custom transcript.", "details": str(e)}), 500
 
-        Transcript:
-        ---
-        {actual_transcript_text}
-        ---
-        """
-        llm_analysis_dict = get_llm_completion( # This will be a dict if successful
-            prompt=user_prompt_for_analysis,
-            system_prompt=SYSTEM_PROMPT_VIDEO_ANALYSIS,
-            is_json_output=True
-        )
+# ... (your _build_cors_preflight_response and hello functions) ...
+def _build_cors_preflight_response():
+    response = make_response()
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
+    response.headers.add('Access-Control-Allow-Methods', "GET,POST,PUT,DELETE,OPTIONS")
+    return response
 
-        if not llm_analysis_dict: # Should not happen if get_llm_completion raises error on failure
-            raise ValueError("LLM returned empty or None analysis")
-
-        print(f"LLM Analysis Results for {video_id} (type: {type(llm_analysis_dict)}): {str(llm_analysis_dict)[:200]}...")
-        
-        # Save to DB
-        current_video_entry.set_llm_analysis(llm_analysis_dict) # Use the model's helper
-        current_video_entry.processing_status = 'completed'
-        current_video_entry.last_processing_error = None
-        try:
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            print(f"DB Error on final save for {video_id}: {e}")
-            # Still return results to user if LLM was successful but DB save failed
-            # Or decide to return an error
-            return jsonify({"error": "Database error saving analysis", "details": str(e)}), 500
-
-
-        return jsonify({
-            "message": "Video analysis completed and saved.",
-            "video_url": video_url,
-            "video_id": video_id,
-            "status": "processed_and_saved",
-            "analysis": llm_analysis_dict
-        }), 200
-
-    except ValueError as ve: # Catch specific error from LLM if JSON parsing fails or other value error
-        print(f"ValueError during LLM processing for {video_id}: {str(ve)}")
-        current_video_entry.processing_status = 'failed_llm'
-        current_video_entry.last_processing_error = f"LLM Value Error: {str(ve)}"
-        db.session.commit() # Save error state
-        return jsonify({"error": "LLM processing error (ValueError)", "details": str(ve)}), 500
-    except Exception as e:
-        print(f"Generic error during LLM processing for {video_id}: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
-        current_video_entry.processing_status = 'failed_llm'
-        current_video_entry.last_processing_error = f"LLM Generic Error: {str(e)}"
-        db.session.commit() # Save error state
-        return jsonify({"error": "Failed to process video with LLM", "details": str(e)}), 500
+@main_bp.route('/hello', methods=['GET']) 
+def hello():
+    return jsonify({"message": "Hello from Flask API!"})
