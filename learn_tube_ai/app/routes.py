@@ -51,7 +51,7 @@ def process_video_route():
         except Exception as e: db.session.rollback(); print(f"API: Database error for {video_id}: {str(e)}"); return jsonify({"error": "Database error after processing video.", "details": str(e)}), 500
     return jsonify(response_data), status_code
 
-# --- MODIFIED ENDPOINT FOR CUSTOM TRANSCRIPT WITH TIMESTAMP PARSING ---
+# --- MODIFIED ENDPOINT FOR CUSTOM TRANSCRIPT WITH ENHANCED TIMESTAMP PARSING ---
 @main_bp.route('/process_video_with_custom_transcript', methods=['POST', 'OPTIONS'])
 def process_video_with_custom_transcript_route():
     if request.method == 'OPTIONS':
@@ -71,89 +71,102 @@ def process_video_with_custom_transcript_route():
     parsed_segments = []
     lines = custom_transcript_text.splitlines()
     
-    # Regex to capture timestamps like [00:00], 00:00, 0:00:00, [0:00:00.123] etc.
-    # It captures hours (optional), minutes, seconds, and optionally milliseconds.
-    # It also handles optional square brackets around the timestamp.
+    # Regex to capture timestamps like [00:00], 00:00, 0:00:00, [0:00:00.123] etc. at the START of a line.
+    # It captures hours (optional, group 2), minutes (group 3), seconds (group 4), and optionally milliseconds (group 5).
+    # Group 6 captures the text after the timestamp.
+    # Adjusted to be more robust for common YouTube transcript formats.
     timestamp_pattern = re.compile(
         r"^\s*(?:\[)?((?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[\.,](\d{1,3}))?)(?:\])?\s*(.*)"
     )
     # Groups: 1:FullTime, 2:Hours(opt), 3:Minutes, 4:Seconds, 5:Millis(opt), 6:Text
 
-    current_segments_buffer = [] # To hold text lines between timestamps
+    current_segment_text_parts = []
+    last_segment_start_time = 0.0 # For text before the first timestamp
 
-    for line in lines:
-        line = line.strip()
-        if not line: # Skip empty lines
-            continue
+    for line_number, line_text in enumerate(lines):
+        original_line = line_text # Keep original for non-timestamp lines
+        line_text = line_text.strip() # Work with stripped line for matching
 
-        match = timestamp_pattern.match(line)
+        match = timestamp_pattern.match(line_text)
+        
         if match:
-            # If we have buffered text, it belongs to the *previous* timestamp (or is intro text)
-            if current_segments_buffer:
-                # If this is the first timestamp found, previous text is intro segment
-                if not parsed_segments: 
+            # A new timestamp is found. Finalize the previous segment if it had text.
+            if current_segment_text_parts:
+                segment_text_to_add = " ".join(current_segment_text_parts).strip()
+                if segment_text_to_add: # Only add if there's actual text
                     parsed_segments.append({
-                        "text": " ".join(current_segments_buffer).strip(),
-                        "start": 0.0, # Intro text starts at 0
-                        "duration": 0.0 # Duration unknown without next timestamp initially
+                        "text": segment_text_to_add,
+                        "start": last_segment_start_time, # Start time of this collected text
+                        "duration": 0.0 # Placeholder, calculated later
                     })
-                else: # Append buffered text to the previous segment's text
-                    parsed_segments[-1]["text"] += " " + " ".join(current_segments_buffer).strip()
-                current_segments_buffer = [] # Clear buffer
+                current_segment_text_parts = [] # Reset for the new segment
 
-            # Extract time components
+            # Extract time components for the NEW current segment
             full_time_str, hr_str, min_str, sec_str, ms_str, text_after_timestamp = match.groups()
             
             hours = int(hr_str) if hr_str else 0
-            minutes = int(min_str) if min_str else 0 # Should always be present if hr_str is
+            minutes = int(min_str) # Minutes should always be present if matched
             seconds = int(sec_str)
-            milliseconds = int(ms_str.ljust(3, '0')) if ms_str else 0 # Pad ms to 3 digits
+            milliseconds = int(ms_str.ljust(3, '0')) if ms_str else 0
 
-            start_time_seconds = (hours * 3600) + (minutes * 60) + seconds + (milliseconds / 1000.0)
+            current_start_time_seconds = (hours * 3600) + (minutes * 60) + seconds + (milliseconds / 1000.0)
+            last_segment_start_time = current_start_time_seconds # Update for the next block of text
+
+            # Add the text part from the timestamped line
+            if text_after_timestamp.strip():
+                current_segment_text_parts.append(text_after_timestamp.strip())
             
-            parsed_segments.append({
-                "text": text_after_timestamp.strip(),
-                "start": start_time_seconds,
-                "duration": 0.0 # Placeholder, will calculate next
-            })
-        else:
-            # This line does not start with a timestamp, append to buffer
-            current_segments_buffer.append(line)
+            # If it's the very last line and it's a timestamped line, ensure it gets added
+            if line_number == len(lines) - 1 and current_segment_text_parts:
+                segment_text_to_add = " ".join(current_segment_text_parts).strip()
+                if segment_text_to_add:
+                    parsed_segments.append({
+                        "text": segment_text_to_add,
+                        "start": last_segment_start_time,
+                        "duration": 0.0 
+                    })
+                current_segment_text_parts = []
 
-    # If there's any remaining text in the buffer after the last timestamp
-    if current_segments_buffer:
-        if not parsed_segments: # Whole text had no timestamps
-            parsed_segments.append({
-                "text": " ".join(current_segments_buffer).strip(),
-                "start": 0.0,
-                "duration": 600.0 # Arbitrary duration for the whole block
-            })
-        else: # Append to the last segment found
-            parsed_segments[-1]["text"] += " " + " ".join(current_segments_buffer).strip()
-            parsed_segments[-1]["text"] = parsed_segments[-1]["text"].strip()
+
+        elif line_text: # Not a timestamp line, but has content
+            current_segment_text_parts.append(original_line.strip()) # Use original_line to preserve internal spacing before stripping ends
+
+    # After loop, if there's any remaining text in current_segments_buffer, it's part of the last segment
+    if current_segment_text_parts:
+        segment_text_to_add = " ".join(current_segment_text_parts).strip()
+        if segment_text_to_add:
+            if not parsed_segments: # Entire text had no timestamps
+                 parsed_segments.append({"text": segment_text_to_add, "start": 0.0, "duration": 0.0})
+            else: # Append to the last segment that had a timestamp
+                 # This assumes the last segment created was the correct one to append to
+                 parsed_segments[-1]["text"] += " " + segment_text_to_add 
+                 parsed_segments[-1]["text"] = parsed_segments[-1]["text"].strip()
 
 
     # Calculate durations (start of next segment - start of current)
-    if len(parsed_segments) > 1:
-        for i in range(len(parsed_segments) - 1):
-            duration = parsed_segments[i+1]["start"] - parsed_segments[i]["start"]
-            # Ensure duration is not negative (e.g. if timestamps are out of order, though unlikely)
-            parsed_segments[i]["duration"] = max(0.1, duration) # Min duration 0.1s
-        # For the last segment, assign an average or arbitrary duration
-        if parsed_segments:
-            parsed_segments[-1]["duration"] = 10.0 # Arbitrary 10s for the last segment
-    elif parsed_segments and parsed_segments[0]["duration"] == 0.0: # Single segment, or intro before first timestamp
-        # If it's an intro text before any timestamp, and no other timestamps followed.
-        # Or if it's a single block of text with no timestamps.
-        if parsed_segments[0]["text"]: # Check if there is text
-             parsed_segments[0]["duration"] = max(10.0, len(parsed_segments[0]["text"]) / 15) # Estimate duration based on text length (15 chars/sec)
+    if parsed_segments:
+        for i in range(len(parsed_segments)):
+            if i + 1 < len(parsed_segments): # If there's a next segment
+                duration = parsed_segments[i+1]["start"] - parsed_segments[i]["start"]
+                parsed_segments[i]["duration"] = max(0.1, duration) # Min duration 0.1s, ensure not negative
+            else: # Last segment
+                # Estimate duration based on text length (e.g., 5 words per second, avg word length 5 chars)
+                # Or a fixed sensible default if text is very short
+                num_chars = len(parsed_segments[i]["text"])
+                estimated_duration = max(2.0, num_chars / 15.0) # At least 2 seconds, or ~15 chars/sec
+                parsed_segments[i]["duration"] = round(estimated_duration, 1)
+        
+        # If the very first segment had no timestamp (start 0) and there's a second segment,
+        # its duration should be up to the start of the second segment.
+        if len(parsed_segments) > 1 and parsed_segments[0]["start"] == 0.0 and parsed_segments[0]["duration"] == 0.0 :
+            parsed_segments[0]["duration"] = max(0.1, parsed_segments[1]["start"])
 
 
-    if not parsed_segments and custom_transcript_text: # Ultimate fallback
-         parsed_segments.append({"text": custom_transcript_text, "start": 0, "duration": 600})
-
+    if not parsed_segments and custom_transcript_text: # Ultimate fallback if all parsing fails
+         parsed_segments.append({"text": custom_transcript_text, "start": 0, "duration": 600}) # Whole text as one segment
 
     print(f"API: Parsed {len(parsed_segments)} segments from custom transcript.")
+    # for seg in parsed_segments[:5]: print(seg) # For debugging parsed segments
     
     analysis_results = process_video_for_llm_analysis(video_id, custom_transcript_text) # LLM still gets the full raw text
 
@@ -165,13 +178,13 @@ def process_video_with_custom_transcript_route():
             db.session.add(video_obj)
         else:
             print(f"API: Updating video {video_id} with custom transcript.")
-            if custom_title and video_obj.title != custom_title: # Only update title if custom one provided and different
-                video_obj.title = custom_title
+            if custom_title and (not video_obj.title or "custom transcript" not in video_obj.title): 
+                video_obj.title = custom_title # Prefer user's custom title for this text
 
-        video_obj.transcript_text = custom_transcript_text # Store original pasted text
-        video_obj.transcript_segments = parsed_segments # Store newly parsed segments
-        # ... (update analysis fields as before) ...
+        video_obj.transcript_text = custom_transcript_text 
+        video_obj.transcript_segments = parsed_segments 
         video_obj.table_of_contents = analysis_results.get("table_of_contents")
+        # ... (rest of analysis fields update) ...
         video_obj.key_terms = analysis_results.get("key_terms")
         video_obj.logical_flow = analysis_results.get("logical_flow")
         video_obj.summary = analysis_results.get("summary")
@@ -185,7 +198,7 @@ def process_video_with_custom_transcript_route():
             "video_url": video_obj.video_url,
             "title": video_obj.title,
             "transcript_text": video_obj.transcript_text,
-            "segments": video_obj.transcript_segments, # Send back parsed segments
+            "segments": video_obj.transcript_segments, 
             "analysis": analysis_results
         }
         return jsonify(response_data), 200
@@ -193,6 +206,7 @@ def process_video_with_custom_transcript_route():
     except Exception as e:
         db.session.rollback()
         print(f"API: Database error for {video_id} with custom transcript: {str(e)}")
+        # import traceback; traceback.print_exc(); # For more detailed error
         return jsonify({"error": "Database error processing custom transcript.", "details": str(e)}), 500
 
 # ... (your _build_cors_preflight_response and hello functions) ...

@@ -1,20 +1,22 @@
-<!-- FILE: src/components/Notebook.vue - USING v-bind FOR PROPS -->
+<!-- FILE: src/components/Notebook.vue - COMPLETE WITH ENHANCED LOGGING -->
 <template>
   <div class="notebook-container">
     <nav class="notebook-nav">
-      <button @click="activePageKey = 'overview'" :class="{ active: activePageKey === 'overview' }">Overview</button>
-      <button @click="activePageKey = 'full_transcript'" :class="{ active: activePageKey === 'full_transcript' }">Transcript</button>
-      <button @click="activePageKey = 'ask_ai'" :class="{ active: activePageKey === 'ask_ai' }">Ask AI</button>
-      <button @click="activePageKey = 'my_notes'" :class="{ active: activePageKey === 'my_notes' }">My Notes</button>
+      <button @click="setActivePage('overview')" :class="{ active: activePageKey === 'overview' }">Overview</button>
+      <button @click="setActivePage('full_transcript')" :class="{ active: activePageKey === 'full_transcript' }">Transcript</button>
+      <button @click="setActivePage('ask_ai')" :class="{ active: activePageKey === 'ask_ai' }">Ask AI</button>
+      <button @click="setActivePage('my_notes')" :class="{ active: activePageKey === 'my_notes' }">My Notes</button>
     </nav>
     <div class="notebook-content">
       <div class="dynamic-component-wrapper"> 
         <KeepAlive>
           <component 
             :is="currentPageComponent"
-            v-bind="currentPageProps"
+            v-bind="currentPageProps" 
             @video-processed="onVideoProcessedInPage" 
             @segment-clicked="onSegmentClickedInPage"
+            @explain-text-requested="handleExplainTextRequestFromPage" 
+            @explanation-query-handled="onExplanationQueryHandled"
           />
         </KeepAlive>
       </div>
@@ -23,7 +25,7 @@
 </template>
 
 <script setup>
-import { ref, computed} from 'vue';
+import { ref, computed, defineProps, defineEmits } from 'vue';
 import VideoProcessor from './VideoProcessor.vue'; 
 import AskAiPage from './AskAiPage.vue';
 import MyNotesPage from './MyNotesPage.vue';
@@ -33,8 +35,9 @@ const props = defineProps({
   rawTranscriptText: { type: String, default: '' },
   transcriptSegments: { type: Array, default: () => [] },
   currentVideoTime: { type: Number, default: 0 }
-  // activeSegmentIdInApp prop was removed from App.vue, so it's removed here too
 });
+
+const emit = defineEmits(['video-processed', 'transcript-segment-clicked', 'explain-text-requested']); 
 
 const componentsMap = {
   overview: VideoProcessor,
@@ -42,30 +45,55 @@ const componentsMap = {
   ask_ai: AskAiPage,
   my_notes: MyNotesPage
 };
+
 const activePageKey = ref('overview'); 
+const textToPassToAskAI = ref(null); 
+
 const currentPageComponent = computed(() => componentsMap[activePageKey.value] || null);
 
-// Create a computed property to bundle props for the dynamic component
 const currentPageProps = computed(() => {
-  // Only pass props if the component is FullTranscriptPage or VideoProcessor (or others that need them)
-  // AskAiPage and MyNotesPage in their current state don't use these transcript-related props directly
-  if (activePageKey.value === 'full_transcript' || activePageKey.value === 'overview') { // Overview might use them later
-    return {
-      rawTranscriptText: props.rawTranscriptText,
-      transcriptSegments: props.transcriptSegments,
-      currentVideoTime: props.currentVideoTime
-    };
+  let pageProps = {};
+  // Pass transcript data to Overview and FullTranscriptPage by default
+  // Other pages like MyNotes won't use them even if passed (Vue handles unused props gracefully)
+  // AskAiPage uses a specific prop for explained text.
+  pageProps.rawTranscriptText = props.rawTranscriptText;
+  pageProps.transcriptSegments = props.transcriptSegments;
+  pageProps.currentVideoTime = props.currentVideoTime;
+  
+  if (activePageKey.value === 'ask_ai' && textToPassToAskAI.value) {
+    pageProps.textForExplanation = textToPassToAskAI.value;
   }
-  return {}; // Return empty object for components that don't need these props
+  
+  console.log(`Notebook.vue: For activePageKey '${activePageKey.value}', computed currentPageProps:`, JSON.parse(JSON.stringify(pageProps)));
+  return pageProps;
 });
 
-const emit = defineEmits(['video-processed', 'transcript-segment-clicked']); 
 const onVideoProcessedInPage = (payload) => { emit('video-processed', payload); };
 const onSegmentClickedInPage = (startTime) => { emit('transcript-segment-clicked', startTime); };
+
+const handleExplainTextRequestFromPage = (selectedText) => {
+  console.log("Notebook.vue: 'explain-text-requested' caught from page, text:", `"${selectedText}"`);
+  textToPassToAskAI.value = selectedText; 
+  activePageKey.value = 'ask_ai';        
+};
+
+const onExplanationQueryHandled = () => {
+  console.log("Notebook.vue: 'explanation-query-handled' caught from AskAiPage.");
+  textToPassToAskAI.value = null; 
+};
+
+const setActivePage = (pageKey) => {
+    if (componentsMap[pageKey]) {
+        activePageKey.value = pageKey;
+        if (pageKey !== 'ask_ai' && textToPassToAskAI.value) {
+           textToPassToAskAI.value = null;
+        }
+    }
+};
 </script>
 
 <style scoped>
-/* STYLES ARE THE SAME as the last working version */
+/* STYLES ARE THE SAME as your last working version */
 .notebook-container { display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; }
 .notebook-nav { display: flex; flex-wrap: wrap; gap: 5px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 2px solid #ddd; flex-shrink: 0; }
 .notebook-nav button { padding: 8px 15px; border: 1px solid #ccc; background-color: #f0f0f0; color: #333; cursor: pointer; border-radius: 4px; font-size: 0.9em; transition: background-color 0.2s, color 0.2s;}
