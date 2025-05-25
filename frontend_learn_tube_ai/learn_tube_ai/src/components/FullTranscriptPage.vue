@@ -13,8 +13,8 @@
         <div class="mode-selector-wrapper">
           <label for="transcript-mode-select" class="mode-label">View Mode:</label>
           <select id="transcript-mode-select" v-model="currentTranscriptMode" class="mode-dropdown">
-            <option value="interactive_click_sync">Interactive - Click to Sync</option>
             <option value="interactive_full_sync">Interactive - Follow Playback</option>
+            <option value="interactive_click_sync">Interactive - Click to Sync</option>
             <option value="static_timestamped">Static - Timestamps</option>
             <option value="static_article">Static - Article View</option>
           </select>
