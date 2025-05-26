@@ -1,63 +1,39 @@
 # learn_tube_ai/app/services/llm_service.py
 import os
 import time 
-# import anthropic # Keep commented if not using the real SDK yet
-import random
+import random 
+from typing import Optional # <<< ADD THIS IMPORT (or add Optional to existing typing import)
+# import anthropic 
+# import json 
 
-# --- Mock Anthropic Client ---
+# --- MockAnthropicClient class definition (remains the same as before) ---
 class MockAnthropicClient:
+    # ... (your existing MockAnthropicClient code)
     def __init__(self, api_key=None):
-        if api_key:
-            print(f"MockAnthropicClient initialized WITH API key: {api_key[:5]}... (but will use placeholder data).")
-        else:
-            print("MockAnthropicClient initialized WITHOUT API key (will use placeholder data).")
+        if api_key: print(f"MockAnthropicClient initialized WITH API key: {api_key[:5]}... (but will use placeholder data).")
+        else: print("MockAnthropicClient initialized WITHOUT API key (will use placeholder data).")
         self.api_key = api_key
-
-    def messagescreate(self, model, max_tokens, messages, system=None): # Added system parameter for potential future use
+    def messagescreate(self, model, max_tokens, messages, system=None):
         print(f"MockAnthropicClient: messages.create called. Model: {model}, Max Tokens: {max_tokens}")
-        # print(f"MockAnthropicClient: Received messages: {messages}")
-        # print(f"MockAnthropicClient: Received system prompt: {system}")
-        
-        time.sleep(0.5 + random.random() * 0.5) # Simulate a variable delay (0.5 to 1.0 seconds)
-        
+        time.sleep(0.5 + random.random() * 0.5)
         user_prompt_summary = "Generic user prompt"
         if messages and messages[0].get("role") == "user":
             content = messages[0].get("content")
-            if isinstance(content, list): # Handle new complex content format
-                user_prompt_summary = " ".join([block.get("text", "") for block in content if block.get("type") == "text"])
-            elif isinstance(content, str):
-                user_prompt_summary = content
-        
-        mock_response_text = f"This is a structured MOCK LLM response based on the prompt: '{user_prompt_summary[:70]}...'. "
-        
-        return {
-            "table_of_contents": [
-                {"title": "Mock ToC - Introduction", "timestamp_seconds": 10},
-                {"title": "Mock ToC - Main Point", "timestamp_seconds": 60},
-                {"title": "Mock ToC - Conclusion", "timestamp_seconds": 120}
-            ],
-            "key_terms": [
-                {"term": "Mockup Data", "definition": "Placeholder information used for testing and development when real data or API access is not available. " + mock_response_text},
-                {"term": "API Simulation", "definition": "Mimicking the behavior of an external API to allow frontend or other services to be built independently. " + mock_response_text}
-            ],
-            "logical_flow": "The mock logical flow is: 1. Initialization, 2. Input Processing, 3. Mock Response Generation, 4. Output. " + mock_response_text,
-            "summary": "This is a concise mock summary, indicating that the LLM analysis was simulated due to the absence of a live API key or being in a test environment. " + mock_response_text
-        }
+            if isinstance(content, list): user_prompt_summary = " ".join([block.get("text", "") for block in content if block.get("type") == "text"])
+            elif isinstance(content, str): user_prompt_summary = content
+        mock_response_text = f"This is a structured MOCK LLM response for general analysis based on the prompt: '{user_prompt_summary[:70]}...'. "
+        return { "table_of_contents": [{"title": "Mock ToC - Intro", "timestamp_seconds": 10}, {"title": "Mock ToC - Main", "timestamp_seconds": 60}], "key_terms": [{"term": "Mock Data", "definition": "Placeholder info. " + mock_response_text}, {"term": "Simulation", "definition": "Mimicking behavior. " + mock_response_text}], "logical_flow": "Mock flow: 1. A, 2. B, 3. C. " + mock_response_text, "summary": "This is a mock summary. " + mock_response_text }
 
-# --- Global LLM Client (Mock or Real) ---
+# --- Global LLM_CLIENT initialization (remains the same) ---
 LLM_CLIENT = None
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-
-if not ANTHROPIC_API_KEY:
+if not ANTHROPIC_API_KEY: # ... (rest of LLM_CLIENT init)
     print("LLM_SERVICE: ANTHROPIC_API_KEY not found. Using MOCK LLM client.")
     LLM_CLIENT = MockAnthropicClient()
 else:
     try:
-        # When you're ready for the real client:
-        # import anthropic
-        # LLM_CLIENT = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        print(f"LLM_SERVICE: ANTHROPIC_API_KEY found ({ANTHROPIC_API_KEY[:5]}...). Real client would be initialized (currently using mock).")
-        LLM_CLIENT = MockAnthropicClient(api_key=ANTHROPIC_API_KEY) # Still using mock for now
+        print(f"LLM_SERVICE: ANTHROPIC_API_KEY found. Real client would be initialized (currently using mock).")
+        LLM_CLIENT = MockAnthropicClient(api_key=ANTHROPIC_API_KEY) 
     except Exception as e:
         print(f"LLM_SERVICE: Error initializing real Anthropic client: {e}. Falling back to MOCK LLM client.")
         LLM_CLIENT = MockAnthropicClient()
@@ -134,3 +110,21 @@ def generate_analysis_from_text(transcript_text: str) -> dict:
             "logical_flow": f"LLM call failed: {e}", 
             "summary": f"Summary generation failed: {e}"
         }
+    
+    # --- NEW FUNCTION FOR EXPLAINING SELECTED TEXT (MOCK) ---
+def explain_selected_text_mock(selected_text: str, video_id_context: Optional[str] = None) -> dict:
+    """
+    Generates a MOCK explanation for a selected piece of text, optionally using video context.
+    """
+    print(f"LLM_SERVICE (Mock): explain_selected_text_mock called with text: '{selected_text[:100]}...' and video_id: {video_id_context}")
+    
+    # Simulate some processing time
+    time.sleep(0.3 + random.random() * 0.4)
+
+    explanation = f"This is a MOCK explanation for the selected text: \"{selected_text[:70]}...\". "
+    if video_id_context:
+        explanation += f"In the context of video ID '{video_id_context}', this segment likely refers to [mock contextual detail]. "
+    explanation += "A real AI would provide a more detailed and accurate breakdown based on semantic understanding and the broader transcript content."
+
+    # The response structure should be simple, e.g., just the explanation text
+    return {"explanation": explanation}
