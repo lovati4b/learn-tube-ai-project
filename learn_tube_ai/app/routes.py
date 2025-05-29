@@ -6,6 +6,8 @@ from .models import Video
 from app import db 
 import re
 from .services.llm_service import explain_selected_text_mock # <<< ADD THIS
+from .models import Video # Add CustomText model later if you create one # ...
+
 
 main_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -239,6 +241,46 @@ def explain_text_route():
         }), 200
     else:
         return jsonify({"error": "Failed to generate mock explanation"}), 500
+
+
+@main_bp.route('/process_custom_text', methods=['POST', 'OPTIONS'])
+def process_custom_text_route():
+    if request.method == 'OPTIONS':
+        return _build_cors_preflight_response()
+
+    data = request.get_json()
+    if not data or 'custom_text' not in data:
+        return jsonify({"error": "Missing 'custom_text' field"}), 400
+
+    custom_text = data.get('custom_text')
+    title = data.get('title', 'Custom Text Analysis') # Default title if not provided
+
+    if not custom_text.strip():
+        return jsonify({"error": "Custom text cannot be empty"}), 400
+
+    print(f"API: Received custom text for analysis. Title: '{title}', Length: {len(custom_text)}")
+
+    # Use your existing LLM service for analysis
+    # You might want to adapt the prompt or create a new LLM function if analysis needs differ
+    analysis_results = process_video_for_llm_analysis(video_id="custom_text_id", transcript_text=custom_text) # Pass a placeholder ID or refine
+
+    # For now, we are not saving custom text to DB, just analyzing
+    # Later, you'd save it and return an ID
+    # custom_text_obj = CustomText(title=title, original_content=custom_text, analysis_data=analysis_results)
+    # db.session.add(custom_text_obj)
+    # db.session.commit()
+    # text_id = custom_text_obj.id
+
+    response_data = {
+        "message": "Custom text processed successfully.",
+        "id": "temp_custom_id_" + str(hash(custom_text))[:8], # Temporary ID
+        "title": title,
+        "original_text": custom_text, # Echo back the original text
+        "analysis": analysis_results,
+        "source": "custom_text" # Explicitly set source for frontend store
+    }
+    return jsonify(response_data), 200
+
 
 # ... (your _build_cors_preflight_response and hello functions) ...
 def _build_cors_preflight_response():

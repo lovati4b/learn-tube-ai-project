@@ -1,4 +1,5 @@
-<!-- FILE: src/App.vue - COMPLETE WITH ENHANCED LOGGING -->
+--- START FILE: frontend_learn_tube_ai\learn_tube_ai\src\App.vue ---
+<!-- FILE: src/App.vue - REFACTORED TO USE PINIA VIA notebookData FOR NOTEBOOK PROPS -->
 <template>
   <div id="app-container">
     <header>
@@ -21,10 +22,16 @@
       </div>
       <div class="right-pane notebook-area">
         <Notebook 
-          :rawTranscriptText="appRawTranscriptText"
-          :transcriptSegments="appTranscriptSegments"
+          :rawTranscriptText="notebookData.rawTranscriptText"
+          :transcriptSegments="notebookData.transcriptSegments"
           :currentVideoTime="appCurrentVideoTime"
-          @video-processed="handleVideoProcessed" 
+          :analysisForOverview="notebookData.analysisForOverview"
+          :currentTitleForOverview="notebookData.currentTitle" 
+          :isLoadingState="notebookData.isLoadingState"
+          :errorState="notebookData.errorState"
+          :showTranscriptPasteFallbackState="notebookData.showTranscriptPasteFallbackState"
+          :currentVideoIdForFallback="notebookData.currentVideoIdForFallback"
+          :currentVideoUrlForFallback="notebookData.currentVideoUrlForFallback"
           @transcript-segment-clicked="handleTranscriptSegmentClick"
         />
       </div>
@@ -33,17 +40,41 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onUnmounted, watch } from 'vue'; // Removed onMounted if not used
 import Notebook from './components/Notebook.vue'; 
+import { useContentStore } from './stores/contentStore';
 
-const appRawTranscriptText = ref(''); 
-const appTranscriptSegments = ref([]); 
-const currentVideoIdForPlayer = ref(''); 
+const contentStore = useContentStore(); 
+
+const notebookData = computed(() => {
+  const isActive = contentStore.activeMode; 
+  const ytData = contentStore.youtubeData;   
+  const txtData = contentStore.textData;   
+  const dataFromGetter = contentStore.dataForNotebook; 
+  
+  console.log(
+    `App.vue: notebookData computed. ActiveMode: ${isActive}, ` +
+    `VideoID from ytData: ${ytData.video_id}, Text Title: ${txtData.title}. ` + // Using ytData.video_id for logging
+    `Getter returned:`, 
+    JSON.parse(JSON.stringify(dataFromGetter))
+  );
+  return dataFromGetter; 
+});
+
+const currentVideoIdForPlayer = computed(() => {
+    const id = notebookData.value.videoIdForPlayer; 
+    console.log('App.vue: currentVideoIdForPlayer computed. ID:', id);
+    return id;
+});
+
+// REMOVED: const appRawTranscriptText = ref(''); 
+// REMOVED: const appTranscriptSegments = ref([]); 
+
 const defaultEmbedSrc = 'https://www.youtube.com/embed/?enablejsapi=1&origin=' + encodeURIComponent(window.location.origin);
 
 const youtubePlayer = ref(null); 
 const youtubePlayerReady = ref(false);
-const appCurrentVideoTime = ref(0); 
+const appCurrentVideoTime = ref(0); // This remains local for player time updates passed to Notebook
 const timeUpdateInterval = ref(null);
 
 const currentVideoEmbedUrl = computed(() => { 
@@ -53,41 +84,24 @@ const currentVideoEmbedUrl = computed(() => {
   return defaultEmbedSrc; 
 });
 
-const handleVideoProcessed = (analysisResult) => {
-  console.log("App.vue: 'video-processed' event received. Full payload:", JSON.parse(JSON.stringify(analysisResult)));
-
-  const newVideoId = analysisResult?.video_id || '';
-
-  appRawTranscriptText.value = analysisResult?.transcript_text || 
-                               (analysisResult?.error ? `Error: ${analysisResult.error}\nDetails: ${analysisResult.details || 'Not available'}` : 'Transcript data not available.');
-  
-  appTranscriptSegments.value = (analysisResult?.segments && Array.isArray(analysisResult.segments)) ? analysisResult.segments : [];
-
-  console.log("App.vue: Updated appRawTranscriptText to:", `"${appRawTranscriptText.value.substring(0,100)}..."`);
-  console.log("App.vue: Updated appTranscriptSegments (length):", appTranscriptSegments.value.length);
-  if (appTranscriptSegments.value.length > 0) {
-    console.log("App.vue: First segment (if any):", JSON.parse(JSON.stringify(appTranscriptSegments.value[0])));
-  }
-
-  if (currentVideoIdForPlayer.value !== newVideoId) {
-    currentVideoIdForPlayer.value = newVideoId; 
-  } else if (newVideoId && (!youtubePlayer.value || !youtubePlayerReady.value)) {
-    loadYoutubeAPIAndPlayer(); 
-  } else if (!newVideoId) { 
-    currentVideoIdForPlayer.value = ''; 
-  }
-};
+// REMOVED: handleVideoProcessed function, as this logic is now handled by VideoProcessor updating Pinia store
 
 watch(currentVideoIdForPlayer, (newId, oldId) => { 
-  console.log(`App.vue: Player Video ID changed from ${oldId} to ${newId}`);
-  if (newId) {
+  console.log(`App.vue (Pinia): Player Video ID WATCHER. New ID: '${newId}', Old ID: '${oldId}', Player Ready: ${youtubePlayerReady.value}`);
+  if (newId && newId !== oldId) { 
+    console.log(`App.vue (Pinia): Watcher condition MET for loading player (newId && newId !== oldId). New ID: ${newId}`);
     youtubePlayerReady.value = false; 
     loadYoutubeAPIAndPlayer();
-  } else {
+  } else if (!newId && oldId) { 
+    console.log(`App.vue (Pinia): Watcher condition MET for destroying player (!newId and oldId existed). Old ID: ${oldId}`);
     destroyYoutubePlayer();
-    appRawTranscriptText.value = 'Transcript will appear here once a video is processed...';
-    appTranscriptSegments.value = [];
     appCurrentVideoTime.value = 0;
+  } else if (newId && newId === oldId && !youtubePlayerReady.value) {
+    console.log(`App.vue (Pinia): Watcher condition MET for re-attempting player load (newId === oldId but not ready). New ID: ${newId}`);
+    loadYoutubeAPIAndPlayer(); 
+  }
+  else {
+     console.log(`App.vue (Pinia): Player WATCHER - Condition for load/destroy NOT MET. newId: '${newId}', oldId: '${oldId}', Player Ready: ${youtubePlayerReady.value}`);
   }
 });
 
@@ -110,7 +124,7 @@ const onPlayerReady = (event) => {
 };
 
 const onPlayerStateChange = (event) => { 
-  if (event.data === window.YT?.PlayerState?.PLAYING) { startCurrentTimeUpdates(); } // Added window.YT check
+  if (event.data === window.YT?.PlayerState?.PLAYING) { startCurrentTimeUpdates(); } 
   else { stopCurrentTimeUpdates(); }
 };
 
@@ -122,7 +136,8 @@ const loadYoutubeAPIAndPlayer = () => {
     const firstScriptTag = document.getElementsByTagName('script')[0];
     if (firstScriptTag && firstScriptTag.parentNode) { firstScriptTag.parentNode.insertBefore(tag, firstScriptTag); } 
     else { document.head.appendChild(tag); }
-    window.onYouTubeIframeAPIReady = () => { console.log("App.vue: window.onYouTubeIframeAPIReady called."); createPlayer(); };
+    window.onYouTubeIframeAPIReady = () => { console.log("App.vue: window.onYouTubeIframeAPIReady called."); createPlayer() ; };
+    // Log was: console.log("App.vue: Creating new YT.Player with ID from store:", currentVideoIdForPlayer.value); // This log might be too early if API isn't ready
   } else { console.log("App.vue: YouTube Iframe API already loaded."); createPlayer(); }
 };
 
@@ -133,7 +148,9 @@ const createPlayer = () => {
   if (!playerDiv) { console.error("App.vue: Target div #youtube-player not found."); return; }
   playerDiv.innerHTML = ''; 
   try {
-    console.log("App.vue: Creating new YT.Player with ID:", currentVideoIdForPlayer.value);
+    // Log was: console.log("App.vue: Creating new YT.Player with ID:", currentVideoIdForPlayer.value);
+    // More specific log moved to the watcher/loadYoutubeAPIAndPlayer for clarity on trigger point
+    console.log("App.vue: Instantiating YT.Player with videoId:", currentVideoIdForPlayer.value);
     youtubePlayer.value = new window.YT.Player('youtube-player', {
       videoId: currentVideoIdForPlayer.value,
       playerVars: { 'playsinline': 1, 'controls': 1, 'modestbranding': 1, 'rel': 0, 'origin': window.location.origin },
@@ -156,7 +173,7 @@ const startCurrentTimeUpdates = () => {
   if (timeUpdateInterval.value) clearInterval(timeUpdateInterval.value);
   timeUpdateInterval.value = setInterval(() => {
     if (youtubePlayer.value && typeof youtubePlayer.value.getCurrentTime === 'function' && 
-        youtubePlayer.value.getPlayerState && youtubePlayer.value.getPlayerState() === window.YT?.PlayerState?.PLAYING) { // Added window.YT check
+        youtubePlayer.value.getPlayerState && youtubePlayer.value.getPlayerState() === window.YT?.PlayerState?.PLAYING) { 
       appCurrentVideoTime.value = youtubePlayer.value.getCurrentTime();
     }
   }, 500); 
@@ -185,7 +202,7 @@ const handleTranscriptSegmentClick = (startTime) => {
 </script>
 
 <style scoped>
-/* STYLES ARE THE SAME as your last working version where left pane only had video player */
+/* STYLES REMAIN THE SAME */
 #app-container { max-width: 100%; padding: 0; font-weight: normal; display: flex; flex-direction: column; flex-grow: 1; min-height: 100vh; }
 header { text-align: center; margin-bottom: 1rem; border-bottom: 1px solid #eee; padding: 1rem 0.5rem; flex-shrink: 0; background-color: #fff; position: sticky; top: 0; z-index: 10; }
 header h1 { font-size: 2em; color: #2c3e50; margin: 0; }

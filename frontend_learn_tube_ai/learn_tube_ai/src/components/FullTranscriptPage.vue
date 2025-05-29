@@ -73,7 +73,7 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits, ref, watch, nextTick, onMounted, onUnmounted, computed, onActivated, onDeactivated } from 'vue';
+import { ref, watch, nextTick, onMounted, onUnmounted, computed, onActivated, onDeactivated } from 'vue';
 
 const props = defineProps({
   rawTranscriptText: { type: String, default: '' },

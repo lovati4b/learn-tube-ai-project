@@ -40,7 +40,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, defineProps, watch, defineEmits, onActivated } from 'vue';
+import { ref, nextTick, onMounted, watch, onActivated } from 'vue';
 
 // --- Props and Emits for "Explain Selected Text" ---
 const props = defineProps({
