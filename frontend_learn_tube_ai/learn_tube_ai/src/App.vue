@@ -22,6 +22,8 @@
       </div>
       <div class="right-pane notebook-area">
         <Notebook 
+          :key="currentContentIdForPages"
+          :currentContentId="notebookData.currentContentId"
           :rawTranscriptText="notebookData.rawTranscriptText"
           :transcriptSegments="notebookData.transcriptSegments"
           :currentVideoTime="appCurrentVideoTime"
@@ -67,8 +69,7 @@ const currentVideoIdForPlayer = computed(() => {
     return id;
 });
 
-// REMOVED: const appRawTranscriptText = ref(''); 
-// REMOVED: const appTranscriptSegments = ref([]); 
+const currentContentIdForPages = computed(() => contentStore.currentContentId);
 
 const defaultEmbedSrc = 'https://www.youtube.com/embed/?enablejsapi=1&origin=' + encodeURIComponent(window.location.origin);
 

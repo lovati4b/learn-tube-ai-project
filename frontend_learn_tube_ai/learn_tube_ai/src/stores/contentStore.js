@@ -58,17 +58,19 @@ export const useContentStore = defineStore('content', {
       let showFallback = false;
       let videoId = null;
       let videoUrl = null;
+      let determinedCurrentContentId = null; 
 
       if (state.activeMode === 'youtube') {
-        rawText = state.youtubeData.transcript_text;    // Check for typos here
-        segments = state.youtubeData.segments;          // Check for typos here
-        currentAnalysis = state.youtubeData.analysis;   // Check for typos here
-        title = state.youtubeData.title;              // Check for typos here
-        isLoading = state.youtubeData.isLoading;      // Check for typos here
-        error = state.youtubeData.error;              // Check for typos here
-        showFallback = state.youtubeData.showFallback;  // Check for typos here
-        videoId = state.youtubeData.video_id;         // Check for typos here
-        videoUrl = state.youtubeData.video_url;       // Check for typos here
+        rawText = state.youtubeData.transcript_text; 
+        segments = state.youtubeData.segments; 
+        currentAnalysis = state.youtubeData.analysis; 
+        title = state.youtubeData.title; 
+        isLoading = state.youtubeData.isLoading; 
+        error = state.youtubeData.error; 
+        showFallback = state.youtubeData.showFallback; 
+        videoId = state.youtubeData.video_id; 
+        videoUrl = state.youtubeData.video_url; 
+        determinedCurrentContentId = state.youtubeData.video_id; // Assign for youtube mode
       
         // TEMPORARY DEBUG LOG INSIDE THE GETTER
       console.log('[Pinia Getter] dataForNotebook: In youtube mode. state.youtubeData:', JSON.parse(JSON.stringify(state.youtubeData)));
@@ -84,7 +86,12 @@ export const useContentStore = defineStore('content', {
         title = state.textData.title;
         isLoading = state.textData.isLoading;
         error = state.textData.error;
+        determinedCurrentContentId = state.textData.id; // Assign for text mode
       }
+
+        // ... (your console logs for debugging the getter can go here) ...
+      console.log('[Pinia Getter] dataForNotebook: In mode:', state.activeMode, '. determinedCurrentContentId:', determinedCurrentContentId);
+      console.log('[Pinia Getter] dataForNotebook: Local vars set to:', { rawText, segmentsLength: segments?.length, currentAnalysisIsNotNull: !!currentAnalysis, title, videoId });
 
       return {
         // Props for Notebook's children
@@ -99,10 +106,20 @@ export const useContentStore = defineStore('content', {
         currentVideoIdForFallback: state.youtubeData.video_id, // For fallback form
         currentVideoUrlForFallback: state.youtubeData.video_url, // For fallback form
          // Props for App.vue player
-        videoIdForPlayer: state.activeMode === 'youtube' ? state.youtubeData.video_id : null,
+        videoIdForPlayer: videoId,
+         currentContentId: determinedCurrentContentId, // <<< ADD THIS LINE 
       };
     },
+
+    currentContentId: (state) => { // <<< NEW GETTER
+      if (state.activeMode === 'youtube') {
+      return state.youtubeData.video_id;
+    } else if (state.activeMode === 'text') {
+      return state.textData.id;
+    }
+      return null;
   },
+},
 
   actions: {
     setActiveMode(mode) {

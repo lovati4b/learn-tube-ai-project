@@ -36,6 +36,7 @@ import FullTranscriptPage from './FullTranscriptPage.vue';
 
 const props = defineProps({
   // Props coming from App.vue (derived from Pinia store's dataForNotebook getter)
+  currentContentId: { type: [String, null], default: null }, // <<<<<<< ADD THIS LINE
   rawTranscriptText: { type: String, default: '' },
   transcriptSegments: { type: Array, default: () => [] },
   currentVideoTime: { type: Number, default: 0 },
@@ -47,6 +48,11 @@ const props = defineProps({
   currentVideoIdForFallback: { type: String, default: null },
   currentVideoUrlForFallback: { type: String, default: null },
 });
+
+// <<< --- ADD THIS WATCHER --- >>>
+watch(() => props.currentContentId, (newVal, oldVal) => {
+  console.log(`Notebook.vue PROPS WATCHER for currentContentId: New='${newVal}', Old='${oldVal}'`);
+}, { immediate: true }); // immediate:true to see its initial value
 
 // <<< --- ADD THIS WATCHER --- >>>
 watch(() => props.rawTranscriptText, (newVal, oldVal) => {
@@ -83,6 +89,7 @@ const currentPageComponent = computed(() => componentsMap[activePageKey.value] |
 const currentPageProps = computed(() => {
   let pageProps = {
     // Common props for most pages
+    currentContentId: props.currentContentId, // <<< PASS IT DOWN
     rawTranscriptText: props.rawTranscriptText,
     transcriptSegments: props.transcriptSegments,
     currentVideoTime: props.currentVideoTime, // For FullTranscriptPage and potentially others

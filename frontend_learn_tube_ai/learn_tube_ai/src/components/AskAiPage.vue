@@ -40,54 +40,46 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, watch, onActivated } from 'vue';
+import { ref, nextTick, defineProps, watch, defineEmits, onMounted, onActivated } from 'vue';
 
-// --- Props and Emits for "Explain Selected Text" ---
 const props = defineProps({
-  textForExplanation: { 
-    type: String,
-    default: null
-  }
+  currentContentId: { type: [String, null], default: null },
+  textForExplanation: { type: String, default: null }
 });
 const emit = defineEmits(['explanation-query-handled']);
-// --- End Props and Emits ---
 
 const messages = ref([]); 
 const userInput = ref('');
-const chatHistoryContainer = ref(null);
-const isLoadingMessages = ref(false); // For future use if loading history
-const isSending = ref(false);         // For user typed messages
-const isExplaining = ref(false);      // For "Explain Selected Text" loading/processing state
+const chatHistoryContainer = ref(null); // Assuming you have this ref in your template
+const isLoadingMessages = ref(false); // Assuming these are used
+const isSending = ref(false);         
+const isExplaining = ref(false);      
+const chatInputTextareaRef = ref(null); // Assuming you have this ref
+const MAX_TEXTAREA_ROWS = 5; // Assuming this is used
 
-const chatInputTextareaRef = ref(null); 
-const MAX_TEXTAREA_ROWS = 5; 
+// This ref tracks the ID for which the current 'messages' are valid.
+const chatIsForContentId = ref(null); 
 
-const scrollToBottom = () => { 
-  nextTick(() => { 
-    if (chatHistoryContainer.value) {
-      chatHistoryContainer.value.scrollTop = chatHistoryContainer.value.scrollHeight; 
-    } 
-  });
-};
+// Helper functions (scrollToBottom, autoGrowTextarea) - ensure they are defined or imported
+const scrollToBottom = () => { /* ... your existing implementation ... */ };
+const autoGrowTextarea = () => { /* ... your existing implementation ... */ };
 
-const autoGrowTextarea = () => { 
-  const textarea = chatInputTextareaRef.value; 
-  if (textarea) { 
-    textarea.style.height = 'auto'; 
-    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20; 
-    const scrollHeight = textarea.scrollHeight; 
-    const contentHeight = scrollHeight - parseFloat(getComputedStyle(textarea).paddingTop) - parseFloat(getComputedStyle(textarea).paddingBottom); 
-    const calculatedRows = Math.round(contentHeight / lineHeight); 
-    textarea.rows = Math.max(1, Math.min(calculatedRows, MAX_TEXTAREA_ROWS)); 
-    textarea.style.height = `${textarea.scrollHeight}px`; 
-    if (calculatedRows > MAX_TEXTAREA_ROWS) { 
-      textarea.style.overflowY = 'auto'; 
-    } else { 
-      textarea.style.overflowY = 'hidden'; 
-    } 
+function syncChatStateWithContentId(newContentId) {
+  console.log(`AskAiPage: syncChatState. Current chat is for: '${chatIsForContentId.value}'. New incoming content ID: '${newContentId}'`);
+  
+  if (newContentId !== chatIsForContentId.value) {
+    console.log(`AskAiPage: Content ID mismatch or change detected. Clearing chat messages and input.`);
+    messages.value = [];
+    userInput.value = '';
+    chatIsForContentId.value = newContentId;
+    // Future: Load chat for newContentId
+  } else {
+    console.log(`AskAiPage: Content ID '${newContentId}' is the same as current '${chatIsForContentId.value}'. Chat preserved.`);
   }
-};
+}
 
+// sendMessage, handleEnterKey, processExplainTextProp - keep your existing implementations
+// Ensure sendMessage logs `chatIsForContentId.value`
 const sendMessage = async () => { 
     const text = userInput.value.trim();
     if (!text || isSending.value) return;
@@ -95,97 +87,60 @@ const sendMessage = async () => {
     messages.value.push({ sender: 'user', text: text });
     const textToSend = userInput.value; 
     userInput.value = ''; 
-    nextTick(() => { 
-        if (chatInputTextareaRef.value) { 
-            chatInputTextareaRef.value.style.height = 'auto'; 
-            chatInputTextareaRef.value.rows = 1; 
-            autoGrowTextarea(); 
-        } 
-        scrollToBottom(); 
-    });
+    nextTick(() => { /* ... autoGrow and scroll ... */ });
     
-    // Simulate backend call for regular chat
-    console.log("AskAiPage: Sending regular user message:", textToSend);
+    console.log("AskAiPage: Sending regular user message:", textToSend, "for contentId:", chatIsForContentId.value); // Use chatIsForContentId
     setTimeout(() => {
         messages.value.push({ sender: 'ai', text: `Mock AI response to your question: "${textToSend}".`});
         isSending.value = false;
         nextTick(scrollToBottom); 
     }, 800 + Math.random() * 700);
 };
+const handleEnterKey = (event) => { /* ... */ };
+const processExplainTextProp = async (textToExplain) => { /* ... your existing implementation, ensure it uses props.currentContentId for context if needed ... */ };
 
-const handleEnterKey = (event) => { if (event.shiftKey) { return; } event.preventDefault(); sendMessage();};
 
-// --- Function to process explained text from prop ---
-const processExplainTextProp = async (textToExplain) => {
-  if (textToExplain && !isExplaining.value) { 
-    console.log("AskAiPage: Processing textForExplanation prop:", `"${textToExplain.substring(0,50)}..."`);
-    isExplaining.value = true; 
-
-    messages.value.push({ sender: 'user', text: `Please explain this from the transcript: "${textToExplain}"` });
-    nextTick(scrollToBottom);
-
-    try {
-      console.log("AskAiPage: Calling backend /api/explain_text with:", textToExplain);
-      const response = await fetch('http://localhost:5000/api/explain_text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            selected_text: textToExplain, 
-            // current_video_id: "PASS_VIDEO_ID_HERE_IF_NEEDED_FROM_APP_VUE_PROPS" 
-        })
-      });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({ explanation: "Error from explanation server." }));
-        throw new Error(errData.details || errData.error || `HTTP error ${response.status}`);
-      }
-      const data = await response.json();
-      messages.value.push({ sender: 'ai', text: data.explanation || "No explanation received." });
-    } catch (error) {
-      console.error("AskAiPage: Error fetching explanation:", error);
-      messages.value.push({ sender: 'ai', text: `Sorry, I couldn't get an explanation: ${error.message}` });
-    } finally {
-      isExplaining.value = false;
-      nextTick(scrollToBottom);
-      emit('explanation-query-handled'); 
-      console.log("AskAiPage: Emitted explanation-query-handled");
-    }
-  } else if (textToExplain && isExplaining.value) {
-    console.log("AskAiPage: Explanation already in progress for:", textToExplain);
-  } else if (!textToExplain) {
-    console.log("AskAiPage: processExplainTextProp called with null/empty text. Doing nothing.");
+onMounted(() => {
+  console.log("AskAiPage MOUNTED. Initial props.currentContentId:", props.currentContentId);
+  syncChatStateWithContentId(props.currentContentId);
+  scrollToBottom(); 
+  nextTick(autoGrowTextarea); 
+  if (props.textForExplanation) {
+    processExplainTextProp(props.textForExplanation);
   }
-};
+});
 
-// --- Watcher and Lifecycle Hooks ---
+onActivated(() => {
+  console.log("AskAiPage ACTIVATED. Current props.currentContentId:", props.currentContentId, "Chat is for:", chatIsForContentId.value);
+  syncChatStateWithContentId(props.currentContentId);
+  scrollToBottom();
+  nextTick(autoGrowTextarea);
+  if (props.textForExplanation) { 
+      processExplainTextProp(props.textForExplanation);
+  }
+});
+
+watch(() => props.currentContentId, (newId, oldId) => {
+  console.log(`AskAiPage PROPS WATCHER: props.currentContentId changed from '${oldId}' to '${newId}'`);
+  syncChatStateWithContentId(newId);
+});
+
+// Watcher for textForExplanation prop
 watch(() => props.textForExplanation, (newText, oldText) => {
-  console.log("AskAiPage: textForExplanation watcher. New:", `"${newText}"`, "Old:", `"${oldText}"`);
-  // Only process if newText is truthy and different from the one being processed or just processed.
-  // The isExplaining flag and Notebook.vue clearing the prop are the main guards.
+  console.log("AskAiPage: textForExplanation watcher. New:", `"${newText ? newText.substring(0,20) : 'null'}"`, "Old:", `"${oldText ? oldText.substring(0,20) : 'null'}"`);
   if (newText) { 
+    // It's important that processExplainTextProp uses the *current* context
+    // or implies a new context related to newText.
+    // If an explanation is for a specific content ID, that needs to be handled.
+    // For now, it adds to the current message list.
     processExplainTextProp(newText);
   }
 });
 
 watch(messages, () => { scrollToBottom(); }, { deep: true });
 watch(userInput, () => { nextTick(autoGrowTextarea); });
-
-onMounted(() => { 
-  scrollToBottom(); 
-  nextTick(autoGrowTextarea); 
-  console.log("AskAiPage MOUNTED. Initial textForExplanation:", props.textForExplanation);
-  if (props.textForExplanation) {
-    processExplainTextProp(props.textForExplanation);
-  }
-});
-onActivated(() => { 
-  scrollToBottom();
-  nextTick(autoGrowTextarea);
-  console.log("AskAiPage ACTIVATED. Current textForExplanation:", props.textForExplanation);
-  if (props.textForExplanation) { 
-      processExplainTextProp(props.textForExplanation);
-  }
-});
 </script>
+
 
 <style scoped>
 /* STYLES ARE THE SAME as your last provided version that worked well */

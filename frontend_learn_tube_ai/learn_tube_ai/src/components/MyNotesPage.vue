@@ -14,10 +14,56 @@
   </div>
 </template>
 
+
 <script setup>
-import { ref } from 'vue';
+import { ref, defineProps, watch, onMounted, onActivated } from 'vue';
+
+const props = defineProps({
+  currentContentId: { type: [String, null], default: null }
+});
+
 const userNotes = ref('');
+// This ref tracks the ID for which the current 'userNotes.value' is valid.
+const notesCurrentlyForId = ref(null); 
+
+function syncNotesStateWithContentId(newContentId) {
+  // This function is called whenever the content ID might have changed.
+  // It decides if notes should be cleared or (in the future) loaded.
+  console.log(`MyNotesPage: syncNotesState. Current notes are for: '${notesCurrentlyForId.value}'. New incoming content ID: '${newContentId}'`);
+  
+  if (newContentId !== notesCurrentlyForId.value) {
+    console.log(`MyNotesPage: Content ID mismatch or change detected. Clearing notes.`);
+    userNotes.value = ''; // Clear current notes
+    notesCurrentlyForId.value = newContentId; // Update what the (now empty) notes are for
+    
+    // Future enhancement:
+    // if (newContentId) {
+    //   // loadNotesFor(newContentId); 
+    // }
+  } else {
+    console.log(`MyNotesPage: Content ID '${newContentId}' is the same as current '${notesCurrentlyForId.value}'. Notes preserved.`);
+  }
+}
+
+onMounted(() => {
+  console.log('MyNotesPage MOUNTED. Initial props.currentContentId:', props.currentContentId);
+  syncNotesStateWithContentId(props.currentContentId);
+});
+
+onActivated(() => {
+  // When tab is reactivated (due to KeepAlive)
+  console.log('MyNotesPage ACTIVATED. Current props.currentContentId:', props.currentContentId);
+  syncNotesStateWithContentId(props.currentContentId);
+});
+
+// Watch for direct changes to the prop while the component is active
+watch(() => props.currentContentId, (newId, oldId) => {
+  console.log(`MyNotesPage PROPS WATCHER: props.currentContentId changed from '${oldId}' to '${newId}'`);
+  syncNotesStateWithContentId(newId); 
+  // The oldId is also useful here if you need to save notes for oldId before clearing.
+});
 </script>
+
 
 <style scoped>
 .notebook-page.my-notes-page { 

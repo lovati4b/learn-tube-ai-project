@@ -89,14 +89,13 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { useContentStore } from '../stores/contentStore'; // Correct path
+import { useContentStore } from '../stores/contentStore';
 
 const props = defineProps({
-    // These will now come from App.vue -> Notebook.vue, sourced from Pinia's dataForNotebook getter
     analysisForOverview: { type: Object, default: null },
     currentTitleForOverview: { type: String, default: '' },
-    isLoadingState: { type: Boolean, default: false }, // Combined loading state
-    errorState: { type: Object, default: null }, // { message: '', details: '' } or null
+    isLoadingState: { type: Boolean, default: false },
+    errorState: { type: Object, default: null }, 
     showTranscriptPasteFallbackState: { type: Boolean, default: false },
     currentVideoIdForFallback: { type: String, default: null },
     currentVideoUrlForFallback: { type: String, default: null },
@@ -104,80 +103,111 @@ const props = defineProps({
 
 const contentStore = useContentStore();
 
-// Local component state for inputs
+// Local component state for inputs - these will now be synced with the store
 const videoUrlInput = ref('');
 const customTextTitleInput = ref('');
 const customTextInput = ref('');
 const pastedTranscriptForFallbackInput = ref('');
-
+    
 const inputAreaVisible = ref(true);
-const showErrorDetails = ref(false); // For toggling technical error details
+const showErrorDetails = ref(false); 
 
 // Computed properties to reflect Pinia state for this component's logic/UI
-const isProcessingYoutube = computed(() => contentStore.activeMode === 'youtube' && contentStore.youtubeData.isLoading);
+const isProcessingYoutube = computed(() => contentStore.activeMode === 'youtube' && contentStore.youtubeData.isLoading && !contentStore.youtubeData.showFallback);
 const isProcessingText = computed(() => contentStore.activeMode === 'text' && contentStore.textData.isLoading);
 const isProcessingFallback = computed(() => contentStore.activeMode === 'youtube' && contentStore.youtubeData.isLoading && contentStore.youtubeData.showFallback);
-
+    
 const currentLoadingState = computed(() => props.isLoadingState || contentStore.globalIsLoading);
 
 const currentErrorFeedback = computed(() => {
   if (props.errorState) {
     return { 
-      type: props.errorState.message.toLowerCase().includes("fetched automatically") ? 'info' : 'error', // Heuristic for fallback prompt
+      type: props.errorState.message && props.errorState.message.toLowerCase().includes("fetched automatically") ? 'info' : 'error',
       text: props.errorState.message, 
       details: props.errorState.details 
     };
   }
-  return { text: null };
+  return { text: null, type: 'info', details: '' }; // Ensure type is always defined
 });
-
-const currentAnalysisData = computed(() => {
-    // Check if there's analysis data from the props (which comes from Pinia)
-    // This is used to decide if the "Analysis Results" section should show content
-    return props.analysisForOverview;
-});
+    
+const currentAnalysisData = computed(() => props.analysisForOverview);
 
 const currentContentIdOrTitle = computed(() => {
+  // This prop currentTitleForOverview comes from contentStore.dataForNotebook.currentTitle
   if (contentStore.activeMode === 'youtube') {
     return contentStore.youtubeData.video_id || props.currentTitleForOverview;
   } else if (contentStore.activeMode === 'text') {
-    return contentStore.textData.title || props.currentTitleForOverview || (contentStore.textData.id ? `Text ID: ${contentStore.textData.id}` : '');
+    return props.currentTitleForOverview || (contentStore.textData.id ? `Text ID: ${contentStore.textData.id}` : '');
   }
   return props.currentTitleForOverview;
 });
-
 
 const currentLoadingMessage = computed(() => {
   if (isProcessingFallback.value) return 'Processing Pasted Transcript...';
   if (isProcessingYoutube.value) return 'Processing Video...';
   if (isProcessingText.value) return 'Processing Text...';
-  if (currentLoadingState.value) return 'Loading...'; // Generic loading
+  if (currentLoadingState.value) return 'Loading...'; 
   return '';
 });
 
+// Sync local inputs with store data
+watch(() => contentStore.activeMode, (newMode) => {
+  console.log("VideoProcessor: activeMode changed to", newMode);
+  if (newMode === 'youtube') {
+    videoUrlInput.value = contentStore.youtubeData.video_url || '';
+  } else if (newMode === 'text') {
+    customTextTitleInput.value = contentStore.textData.title || '';
+    customTextInput.value = contentStore.textData.original_text || '';
+  }
+}, { immediate: true }); // immediate: true to run on component mount/setup
+
+watch(() => contentStore.youtubeData.video_url, (newUrl) => {
+  if (contentStore.activeMode === 'youtube') {
+    videoUrlInput.value = newUrl || '';
+    console.log("VideoProcessor: youtubeData.video_url changed, updated videoUrlInput to:", videoUrlInput.value);
+  }
+});
+
+watch(() => contentStore.textData.title, (newTitle) => {
+  if (contentStore.activeMode === 'text') {
+    customTextTitleInput.value = newTitle || '';
+    console.log("VideoProcessor: textData.title changed, updated customTextTitleInput to:", customTextTitleInput.value);
+  }
+});
+
+watch(() => contentStore.textData.original_text, (newText) => {
+  if (contentStore.activeMode === 'text') {
+    customTextInput.value = newText || '';
+    console.log("VideoProcessor: textData.original_text changed, updated customTextInput.");
+  }
+});
+
 function setInputMode(mode) {
+  console.log("VideoProcessor: setInputMode called with", mode);
   if (contentStore.activeMode !== mode) {
     contentStore.setActiveMode(mode);
-    // Clear local inputs when mode changes if desired
-    videoUrlInput.value = '';
-    customTextTitleInput.value = '';
-    customTextInput.value = '';
-    pastedTranscriptForFallbackInput.value = '';
   }
 }
 
 async function handleProcessVideoUrl() {
-  if (!videoUrlInput.value.trim() || isProcessingYoutube.value) return;
+  if (!videoUrlInput.value.trim() || isProcessingYoutube.value) {
+    console.warn("VideoProcessor: ProcessVideoUrl called but input empty or already processing.");
+    return;
+  }
+  console.log("VideoProcessor: handleProcessVideoUrl with URL:", videoUrlInput.value);
   contentStore.startProcessingVideo(videoUrlInput.value);
   inputAreaVisible.value = false; 
   await sendRequestToBackend('http://localhost:5000/api/process_video', { video_url: videoUrlInput.value }, 'youtube_video');
 }
 
 async function handleProcessPastedText() {
-  if (!customTextInput.value.trim() || isProcessingText.value) return;
-  contentStore.startProcessingText(customTextTitleInput.value, customTextInput.value);
+  if (!customTextInput.value.trim() || isProcessingText.value) {
+    console.warn("VideoProcessor: ProcessPastedText called but input empty or already processing.");
+    return;
+  }
+  console.log("VideoProcessor: handleProcessPastedText with Title:", customTextTitleInput.value);
+  contentStore.startProcessingText(customTextTitleInput.value.trim(), customTextInput.value); // Pass trimmed title
   inputAreaVisible.value = false;
-  // TODO: Create this backend endpoint
   await sendRequestToBackend('http://localhost:5000/api/process_custom_text', { 
     custom_text: customTextInput.value,
     title: customTextTitleInput.value.trim() || 'Custom Text Analysis' 
@@ -186,15 +216,20 @@ async function handleProcessPastedText() {
 
 async function handleProcessPastedFallbackTranscript() {
   if (!pastedTranscriptForFallbackInput.value.trim() || isProcessingFallback.value) return;
-  contentStore.startProcessingFallbackTranscript(); // Update store state
+  console.log("VideoProcessor: handleProcessPastedFallbackTranscript for videoId:", props.currentVideoIdForFallback);
+  contentStore.startProcessingFallbackTranscript(); 
   await sendRequestToBackend('http://localhost:5000/api/process_video_with_custom_transcript', { 
-    video_id: props.currentVideoIdForFallback, // Get from props
-    video_url: props.currentVideoUrlForFallback, // Get from props
+    video_id: props.currentVideoIdForFallback, 
+    video_url: props.currentVideoUrlForFallback, 
     custom_transcript_text: pastedTranscriptForFallbackInput.value,
-  }, 'youtube_video'); // Still results in youtubeData
+  }, 'youtube_video'); 
 }
 
 async function sendRequestToBackend(endpoint, payload, source) {
+  // This function remains as it was, making sure it calls
+  // contentStore.setProcessedData or contentStore.setProcessingError
+  // based on the outcome.
+  console.log(`VideoProcessor: sendRequestToBackend. Endpoint: ${endpoint}, Source: ${source}`);
   try {
     const response = await fetch(endpoint, { 
       method: 'POST', 
@@ -219,22 +254,24 @@ async function sendRequestToBackend(endpoint, payload, source) {
       let errorData = {
         error: data.error || `Server error (${response.status})`,
         details: data.details || JSON.stringify(data),
-        video_id: data.video_id, // For fallback
-        video_url: data.video_url, // For fallback
-        showFallback: source === 'youtube_video' && (response.status === 422 || (data.error && data.error.toLowerCase().includes("transcript"))),
+        video_id: data.video_id, 
+        video_url: data.video_url, 
+        // Logic for showing fallback is now primarily in the store based on error from backend
+        showFallback: source === 'youtube_video' && data.video_id && (response.status === 422 || (data.error && data.error.toLowerCase().includes("transcript"))),
       };
       contentStore.setProcessingError(source, errorData);
-      if (!errorData.showFallback) {
+      if (!errorData.showFallback) { // If not showing fallback, make input visible again
         inputAreaVisible.value = true;
       }
     } else { 
       console.log(`VideoProcessor: Success for ${source}:`, data);
-      // For fallback, ensure it clears the fallback flag
       if (source === 'youtube_video' && contentStore.youtubeData.showFallback) {
-         contentStore.clearFallbackState();
+          contentStore.clearFallbackState(); // Clear fallback state on successful processing
       }
-      contentStore.setProcessedData(source, { ...data, original_text: source === 'custom_text' ? payload.custom_text : undefined });
-      inputAreaVisible.value = false; 
+      // Ensure original_text is passed for custom_text source if store needs it from here
+      const processedPayload = source === 'custom_text' ? { ...data, original_text: payload.custom_text } : data;
+      contentStore.setProcessedData(source, processedPayload);
+      // inputAreaVisible.value = false; // Keep this commented if we want inputs to stay visible after success
     }
   } catch (e) {
     console.error(`VideoProcessor: Network or client-side error for ${source}:`, e);
@@ -242,38 +279,14 @@ async function sendRequestToBackend(endpoint, payload, source) {
     inputAreaVisible.value = true; 
   }
 }
-
+    
 const revealInputArea = () => { inputAreaVisible.value = true; };
 const hideInputArea = () => { inputAreaVisible.value = false; };
 
-// Watch for external changes that might require resetting local input fields
-watch(() => contentStore.activeMode, (newMode, oldMode) => {
-    if (newMode !== oldMode) {
-        videoUrlInput.value = '';
-        customTextTitleInput.value = '';
-        customTextInput.value = '';
-        pastedTranscriptForFallbackInput.value = '';
-    }
-});
-// If video ID changes in store (e.g. new video processed), clear local URL input
-watch(() => contentStore.youtubeData.video_id, (newVal) => {
-    if (contentStore.activeMode === 'youtube' && newVal && videoUrlInput.value && !videoUrlInput.value.includes(newVal)) {
-       // This case means a video was processed, we might want to clear the input field
-       // or let it be. For now, let's not clear it to allow re-processing if user wants.
-    }
-     if (!newVal && contentStore.activeMode === 'youtube') { // Video cleared
-        videoUrlInput.value = '';
-    }
-});
- watch(() => contentStore.textData.id, (newVal) => {
-    if (!newVal && contentStore.activeMode === 'text') { // Custom text cleared
-        customTextTitleInput.value = '';
-        customTextInput.value = '';
-    }
-});
-
-
+// Initial sync of inputs on component setup if mode is already set
+// (Handled by immediate:true on activeMode watcher)
 </script>
+
 
 <style scoped>
 /* STYLES REMAIN THE SAME */
