@@ -212,34 +212,39 @@ def process_video_with_custom_transcript_route():
         # import traceback; traceback.print_exc(); # For more detailed error
         return jsonify({"error": "Database error processing custom transcript.", "details": str(e)}), 500
 
+
 @main_bp.route('/explain_text', methods=['POST', 'OPTIONS'])
 def explain_text_route():
     if request.method == 'OPTIONS':
         return _build_cors_preflight_response()
-
+    
+    print(f"API: /api/explain_text HIT with method {request.method}") # Keep this log
+    
+    # Restore original logic
     data = request.get_json()
     if not data or 'selected_text' not in data:
+        print("API Error: Missing 'selected_text' in request") # Add log
         return jsonify({"error": "Missing 'selected_text' in request"}), 400
 
     selected_text = data['selected_text']
-    video_id_context = data.get('current_video_id') # Optional: get video_id for context
+    video_id_context = data.get('current_video_id') 
 
     print(f"API: Received request to explain text: '{selected_text[:100]}...', context video_id: {video_id_context}")
 
     if not selected_text.strip():
+        print("API Error: Selected text cannot be empty") # Add log
         return jsonify({"error": "Selected text cannot be empty"}), 400
 
-    # Call the (mock) LLM service function
-    # In the future, this would call a real LLM for explanation
     mock_explanation_data = explain_selected_text_mock(selected_text, video_id_context)
 
     if mock_explanation_data and "explanation" in mock_explanation_data:
         return jsonify({
             "message": "Explanation generated (mock).",
             "explanation": mock_explanation_data["explanation"],
-            "original_text": selected_text # Echo back the original text for context if needed
+            "original_text": selected_text 
         }), 200
     else:
+        print("API Error: Failed to generate mock explanation") # Add log
         return jsonify({"error": "Failed to generate mock explanation"}), 500
 
 
